@@ -5,12 +5,21 @@ import (
 	"net"
 	"io"
 	"bufio"
+	"flag"
 	"encoding/json"
 	"HipstMR/lib/go/hipstmr"
 )
 
 
 func main() {
+	help := flag.Bool("help", false, "print this help")
+	master := flag.String("master", "", "master adress")
+	flag.Parse()
+	if *help || *master == "" {
+		flag.PrintDefaults()
+		return
+	}
+
 	params := hipstmr.NewParamsIO("input", "output")
 	params.Files["./f.txt"] = ""
 	params.Type = "map"
@@ -25,7 +34,7 @@ func main() {
 		panic(err)
 	}
 
-	conn, err := net.Dial("tcp", "localhost:8013")
+	conn, err := net.Dial("tcp", *master)
 	if err != nil {
 		panic(err)
 	}
