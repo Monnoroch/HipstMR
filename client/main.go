@@ -12,6 +12,8 @@ import (
 
 
 func main() {
+	hipstmr.Init()
+
 	help := flag.Bool("help", false, "print this help")
 	master := flag.String("master", "", "master adress")
 	flag.Parse()
@@ -20,8 +22,7 @@ func main() {
 		return
 	}
 
-	params := hipstmr.NewParamsIO("input", "output")
-	params.Files["./f.txt"] = ""
+	params := hipstmr.NewParamsIO("input", "output").AddFile("f.txt")
 	params.Type = "map"
 	params.Name = "MyMap"
 
