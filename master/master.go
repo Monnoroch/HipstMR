@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"io"
 	"fmt"
 	"bufio"
 	"flag"
@@ -11,171 +10,235 @@ import (
 	"HipstMR/lib/go/hipstmr"
 )
 
-type Task struct {
-	trans *hipstmr.Transaction
-	signal chan struct{}
-}
-
-var transactions map[string]*hipstmr.Transaction
-
-
-type TaskChanCollection struct {
-	chans []chan Task
-}
-
-func (self *TaskChanCollection) Add(ch chan Task) {
-	self.chans = append(self.chans, ch)
-}
-
-func (self *TaskChanCollection) Remove(ch chan Task) {
-	for i, c := range self.chans {
-		if ch == c {
-			self.chans = append(self.chans[:i], self.chans[i+1:]...)
-			close(ch)
-			return
-		}
-	}
-}
-
-func (self *TaskChanCollection) Multiplex(ch chan Task) {
-	for task := range ch {
-		for _, c := range self.chans {
-			go func() { c <- task }()
-		}
-	}
-}
-
-
-type Sheduler struct {
-	tasks chan Task
-}
-
-var sheduler *Sheduler
-
-func (self *Sheduler) AddJob(conn net.Conn, trans *hipstmr.Transaction, done chan struct{}) {
-	go func() {
-		ch := make(chan struct{})
-		self.tasks <- Task{
-			trans: trans,
-			signal: ch,
-		}
-		for _ = range ch {
-			if err := sendTrans(conn, *trans); err != nil {
-				fmt.Println("Error:", err)
-			}
-		}
-		done <- struct{}{}
-	}()
-}
-
-func (self *Sheduler) AddTransaction(conn net.Conn, trans *hipstmr.Transaction, done chan struct{}) {
-	go func() {
-		dones := make([]chan struct{}, slavesCnt)
-		for i := 0; i < len(dones); i++ {
-			dones[i] = make(chan struct{})
-		}
-
-		for i := 0; i < len(dones); i++ {
-			self.AddJob(conn, trans, dones[i])
-		}
-
-		for i := 0; i < len(dones); i++ {
-			<-dones[i]
-		}
-		done <- struct{}{}
-	}()
-}
 
 func sendTrans(conn net.Conn, trans hipstmr.Transaction) error {
 	trans.Params = nil
-	bytes, err := json.Marshal(trans)
-	if err != nil {
+	return trans.Send(conn)
+}
+
+func sendTransOrPrint(conn net.Conn, trans hipstmr.Transaction) {
+	if err := sendTrans(conn, trans); err != nil {
+		fmt.Println("Error:", err)
+	}
+}
+
+func sendTransOrFail(conn net.Conn, trans hipstmr.Transaction) error {
+	if err := sendTrans(conn, trans); err != nil {
+		trans.Status = "failed"
+		sendTrans(conn, trans)
 		return err
 	}
-	conn.Write(bytes)
 	return nil
 }
 
-func sendFullTrans(conn net.Conn, trans hipstmr.Transaction) error {
-	bytes, err := json.Marshal(trans)
-	if err != nil {
-		return err
-	}
-	conn.Write(bytes)
-	return nil
+
+type Signal struct {}
+
+type Task struct {
+	trans *hipstmr.Transaction
+	signal chan Signal
 }
+
+type Slave struct {
+	tasks chan Task
+}
+
+func (self *Slave) Run(decoder *json.Decoder, recv chan hipstmr.Transaction) {
+	for {
+		var t hipstmr.Transaction
+		err := decoder.Decode(&t)
+		if err != nil {
+			break
+		}
+
+		recv <- t
+	}
+}
+
+type Sheduler struct {
+	slaves []*Slave
+}
+
+type slaveTask struct {
+	task Task
+	slave *Slave
+}
+
+func (self *Sheduler) GetSlavesTasks(trans *hipstmr.Transaction) []slaveTask { // TODO: smart choose
+	res := make([]slaveTask, len(self.slaves))
+	for i := 0; i < len(res); i++ {
+		res[i] = slaveTask{
+			task: Task{
+				trans: trans,
+				signal: make(chan Signal),
+			},
+			slave: self.slaves[i],
+		}
+	}
+	return res
+}
+
+func (self *Sheduler) RunTransaction(trans *hipstmr.Transaction) bool {
+	slavesTasks := self.GetSlavesTasks(trans)
+	if len(slavesTasks) == 0 {
+		return false
+	}
+
+	for i := 0; i < len(slavesTasks); i++ {
+		fmt.Println("Sending task to a slave")
+		slavesTasks[i].slave.tasks <- slavesTasks[i].task
+		fmt.Println("Sent task to a slave")
+	}
+
+	for i := 0; i < len(slavesTasks); i++ {
+		fmt.Println("Wait for a slave")
+		<-slavesTasks[i].task.signal
+		fmt.Println("Slave finished!")
+	}
+	return true
+}
+
+func (self *Sheduler) AddSlave() *Slave {
+	res := &Slave{
+		tasks: make(chan Task),
+	}
+	self.slaves = append(self.slaves, res)
+	return res
+}
+
+func (self *Sheduler) RemoveSlave(slave *Slave) {
+	for i, s := range self.slaves {
+		if s == slave {
+			self.slaves = append(self.slaves[:i], self.slaves[i+1:]...)
+			break
+		}
+	}
+	close(slave.tasks)
+}
+
+var transactions map[string]*hipstmr.Transaction
+var sheduler *Sheduler
+
+// type TaskChanCollection struct {
+// 	chans []chan Task
+// }
+
+// func (self *TaskChanCollection) Add(ch chan Task) {
+// 	self.chans = append(self.chans, ch)
+// }
+
+// func (self *TaskChanCollection) Remove(ch chan Task) {
+// 	for i, c := range self.chans {
+// 		if ch == c {
+// 			self.chans = append(self.chans[:i], self.chans[i+1:]...)
+// 			close(ch)
+// 			return
+// 		}
+// 	}
+// }
+
+// func (self *TaskChanCollection) Multiplex(ch chan Task) {
+// 	for task := range ch {
+// 		for _, c := range self.chans {
+// 			go func() { c <- task }()
+// 		}
+// 	}
+// }
+
+// func (self *TaskChanCollection) Combine(ch chan Task) { // TODO: fix add/remove
+// 	for _, c := range self.chans {
+// 		c := c
+// 		go func() {
+// 			for task := range c {
+// 				task <- ch
+// 			}
+// 		}()
+// 	}
+// }
+
+
 
 func onNewClient(conn net.Conn, trans hipstmr.Transaction) error {
 	id := uuid.New()
 	trans.Id = id
 	transactions[id] = &trans
 
+	fmt.Println("Accepted transaction")
+
 	trans.Status = "started"
 
-	if err := sendTrans(conn, trans); err != nil {
-		trans.Status = "failed"
-		sendTrans(conn, trans)
+	if err := sendTransOrFail(conn, trans); err != nil {
 		return err
 	}
 
-	done := make(chan struct{})
-	sheduler.AddTransaction(conn, &trans, done)
-	<-done
+	fmt.Println("Run transaction")
+
+	if !sheduler.RunTransaction(&trans) {
+		trans.Status = "failed"
+	}
+
+	sendTransOrPrint(conn, trans)
+
+	fmt.Println("Finished transaction")
 
 	return nil
 }
 
-var slavesCnt int = 0
+func suckMessages(messages chan hipstmr.Transaction) string {
+	for msg := range messages {
+		if msg.Status == "finished" || msg.Status == "failed" {
+			return msg.Status
+		}
+	}
+	return ""
+}
 
 func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
-	slavesCnt++
-	fmt.Println("onNewSlave", slavesCnt)
-	for task := range sheduler.tasks {
-		fmt.Println("Accepted task")
-		trans := task.trans
-		signal := task.signal
-		go func() {
-			defer func() {
-				signal <- struct{}{}
-				close(signal)
+	slave := sheduler.AddSlave()
+	fmt.Println("new slave", len(sheduler.slaves))
+	messages := make(chan hipstmr.Transaction)
+
+	go func() {
+		for task := range slave.tasks {
+			fmt.Println("Accepted task")
+			trans := task.trans
+			signal := task.signal
+
+			go func() {
+				fmt.Println("Run task")
+				if err := trans.Send(conn); err != nil {
+					fmt.Println("Dropped task")
+					close(slave.tasks)
+					return
+				}
+
+				status := suckMessages(messages)
+				if status == "" {
+					close(slave.tasks)
+					return
+				}
+
+				fmt.Println("Finished task")
+				trans.Status = status
+				signal <- Signal{}
 			}()
+		}
 
-			if err := sendFullTrans(conn, *trans); err != nil {
-				panic(err)
-			}
+		fmt.Println("Slave died!")
+	}()
 
-			for {
-				var t hipstmr.Transaction
-				err := decoder.Decode(&t)
-				if err == io.EOF {
-					trans.Status = "finished"
-					break
-				}
+	slave.Run(decoder, messages)
+	close(messages)
 
-				if err != nil {
-					trans.Status = "failed"
-					break
-				}
-
-				trans.Status = t.Status
-				if trans.Status == "finished" {
-					break
-				}
-
-				signal <- struct{}{}
-			}
-		}()
-	}
-	slavesCnt--
-	fmt.Println("close slave", slavesCnt)
+	sheduler.RemoveSlave(slave)
+	fmt.Println("close slave", len(sheduler.slaves))
 	return nil
 }
 
 func handle(conn net.Conn) {
 	defer conn.Close()
 
-	reader := bufio.NewReader(conn)
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(bufio.NewReader(conn))
 	var trans hipstmr.Transaction
 	err := decoder.Decode(&trans)
 	if err != nil {
@@ -191,7 +254,6 @@ func handle(conn net.Conn) {
 			panic(err)
 		}
 	}
-	fmt.Println("Finished task")
 }
 
 func main() {
@@ -206,7 +268,7 @@ func main() {
 	// cluster := []string{"localhost:8100", "localhost:8101"}
 	transactions = make(map[string]*hipstmr.Transaction)
 	sheduler = &Sheduler{
-		tasks: make(chan Task),
+		slaves: make([]*Slave, 0),
 	}
 
 	sock, err := net.Listen("tcp", *address)

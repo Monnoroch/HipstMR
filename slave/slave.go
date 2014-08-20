@@ -98,11 +98,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	defer conn.Close()
 
 	conn.Write(res)
 
-	reader := bufio.NewReader(conn)
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(bufio.NewReader(conn))
 
 	for {
 		var trans hipstmr.Transaction
