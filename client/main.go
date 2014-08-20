@@ -1,17 +1,25 @@
 package main
 
 import (
-	"fmt"
-	"net"
-	"io"
-	"bufio"
 	"flag"
-	"encoding/json"
 	"HipstMR/lib/go/hipstmr"
 )
 
+type MyMap struct {
+	Val string `json:"val"`
+}
+
+func (self *MyMap) Name() string {
+	return "MyMap"
+}
+
+func (self *MyMap) Start() {}
+func (self *MyMap) Do() {}
+func (self *MyMap) Finish() {}
+
 
 func main() {
+	hipstmr.Register(&MyMap{})
 	hipstmr.Init()
 
 	help := flag.Bool("help", false, "print this help")
@@ -22,40 +30,6 @@ func main() {
 		return
 	}
 
-	params := hipstmr.NewParamsIO("input", "output").AddFile("f.txt")
-	params.Type = "map"
-	params.Name = "MyMap"
-
-	var trans hipstmr.Transaction
-	trans.Params = params
-	trans.Status = "starting"
-
-	res, err := json.Marshal(&trans)
-	if err != nil {
-		panic(err)
-	}
-
-	conn, err := net.Dial("tcp", *master)
-	if err != nil {
-		panic(err)
-	}
-
-	conn.Write(res)
-
-	reader := bufio.NewReader(conn)
-	decoder := json.NewDecoder(reader)
-
-	for {
-		var trans hipstmr.Transaction
-		err = decoder.Decode(&trans)
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Println("Transaction " + trans.Id + " " + trans.Status)
-	}
+	server := hipstmr.NewServer(*master)
+	server.Map(hipstmr.NewParamsIO("input", "output").AddFile("f.txt"), &MyMap{Val: "hello!"})
 }

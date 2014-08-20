@@ -2,6 +2,7 @@ package hipstmr
 
 import (
 	"os"
+	"fmt"
 	"flag"
 )
 
@@ -21,5 +22,13 @@ func Init() {
 		return
 	}
 
-	RunJob(*jtype, *name)
+	runJob(*jtype, *name)
+}
+
+func runJob(jtype, name string) {
+	job, err := CreateJob(name)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("RunJob(" + jtype + ", " + job.Name() + ")", job)
 }

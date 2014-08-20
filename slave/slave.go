@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"bufio"
+	"bytes"
 	"flag"
 	"encoding/json"
 	"HipstMR/lib/go/hipstmr"
@@ -55,12 +56,15 @@ func onTransaction(trans hipstmr.Transaction, conn net.Conn) {
 	sendTrans(conn, trans)
 	fmt.Println("Transaction " + trans.Id + " " + trans.Status)
 	cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob", "-type", trans.Params.Type, "-name", trans.Params.Name)
+	cmd.Stdin = bytes.NewReader(trans.Params.Object)
 	out, err := cmd.Output()
+	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+	fmt.Print(string(out))
+	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
 	if err != nil {
 		panic(err)
 	}
-
-	fmt.Print(string(out))
 
 	time.Sleep(time.Millisecond * 500)
 	trans.Status = "finished"

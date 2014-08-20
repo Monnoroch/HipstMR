@@ -14,6 +14,7 @@ type Params struct {
 	Files map[string][]byte `json:"files"`
 	Type string `json:"type"`
 	Name string `json:"name"`
+	Object []byte `json:"job"`
 }
 
 func (self *Params) MarshalJSON() ([]byte, error) {
@@ -22,6 +23,7 @@ func (self *Params) MarshalJSON() ([]byte, error) {
 	obj["type"] = self.Type
 	obj["input_tables"] = self.InputTables
 	obj["output_tables"] = self.OutputTables
+	obj["job"] = self.Object
 	files := make(map[string][]byte)
 	for k, v := range(self.Files) {
 		isSelf := false
