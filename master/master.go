@@ -41,6 +41,7 @@ type Task struct {
 
 type Slave struct {
 	tasks chan Task
+	id string
 }
 
 func (self *Slave) Run(decoder *json.Decoder, recv chan hipstmr.Transaction) {
@@ -101,6 +102,7 @@ func (self *Sheduler) RunTransaction(trans *hipstmr.Transaction) bool {
 func (self *Sheduler) AddSlave() *Slave {
 	res := &Slave{
 		tasks: make(chan Task),
+		id: uuid.New(),
 	}
 	self.slaves = append(self.slaves, res)
 	return res
@@ -157,6 +159,7 @@ var sheduler *Sheduler
 // }
 
 
+var FS map[string]map[string][]string
 
 func onNewClient(conn net.Conn, trans hipstmr.Transaction) error {
 	id := uuid.New()
@@ -195,6 +198,35 @@ func suckMessages(messages chan hipstmr.Transaction) string {
 
 func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 	slave := sheduler.AddSlave()
+
+	var chunksReq hipstmr.Transaction
+	chunksReq.Status = "get_chunks"
+	if err := sendTransOrFail(conn, chunksReq); err != nil {
+		return err
+	}
+
+	var chunks hipstmr.Transaction
+	err := decoder.Decode(&chunks)
+	if err != nil {
+		return err
+	}
+
+	chs := chunks.Payload.(map[string]interface{})
+	for k, v := range chs {
+		fsk := FS[k]
+		if fsk == nil {
+			fsk = make(map[string][]string)
+			FS[k] = fsk
+		}
+
+		vs := v.([]interface{})
+		for _, vv := range vs {
+			fsk[slave.id] = append(fsk[slave.id], vv.(string))
+		}
+	}
+
+	fmt.Println("Chunks:", FS)
+
 	fmt.Println("new slave", len(sheduler.slaves))
 	messages := make(chan hipstmr.Transaction)
 
@@ -231,6 +263,11 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 	close(messages)
 
 	sheduler.RemoveSlave(slave)
+
+	for _, v := range FS {
+		delete(v, slave.id)
+	}
+
 	fmt.Println("close slave", len(sheduler.slaves))
 	return nil
 }
@@ -270,6 +307,8 @@ func main() {
 	sheduler = &Sheduler{
 		slaves: make([]*Slave, 0),
 	}
+
+	FS = make(map[string]map[string][]string)
 
 	sock, err := net.Listen("tcp", *address)
 	if err != nil {

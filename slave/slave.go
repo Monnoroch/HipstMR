@@ -4,17 +4,63 @@ import (
 	"fmt"
 	"net"
 	"io"
+	"io/ioutil"
 	"time"
 	"os"
 	"os/exec"
 	"path"
+	"errors"
 	"bufio"
 	"bytes"
+	"strings"
 	"flag"
 	"encoding/json"
 	"HipstMR/lib/go/hipstmr"
 )
 
+func traverseDirectoryRec(name string, isRoot bool) (map[string][]string, error) {
+	p := path.Clean(name)
+	dir, err := ioutil.ReadDir(p)
+	if err != nil {
+		return nil, err
+	}
+
+	res := map[string][]string{}
+	for _, v := range dir {
+		if v.IsDir() {
+			r, err := traverseDirectoryRec(path.Join(name, v.Name()), false)
+			if err != nil {
+				return nil, err
+			}
+
+			for k, v := range r {
+				if !isRoot {
+					res[k] = v
+				} else {
+					res[k[len(name):]] = v
+				}
+			}
+		} else {
+			nm := v.Name()
+			i := strings.Index(nm, ".chunk.")
+			if i == -1 {
+				return nil, errors.New("Not a chunk: " + path.Join(name, nm))
+			}
+
+			tag := nm[:i]
+			if !isRoot {
+				tag = path.Join(name, tag)
+			}
+			id := nm[i+len(".chunk."):]
+			res[tag] = append(res[tag], id)
+		}
+	}
+	return res, nil
+}
+
+func traverseDirectory(name string) (map[string][]string, error) {
+	return traverseDirectoryRec(name, true)
+}
 
 func dumpTransaction(trans hipstmr.Transaction) string {
 	res := ""
@@ -45,6 +91,20 @@ func dumpTransaction(trans hipstmr.Transaction) string {
 }
 
 func onTransaction(trans hipstmr.Transaction, conn net.Conn) {
+	if trans.Status == "get_chunks" {
+		dir, err := traverseDirectory("data/")
+		if err != nil {
+			trans.Status = "failed"
+			sendTrans(conn, trans)
+			return
+		}
+
+		trans.Payload = dir
+		trans.Status = "chunks"
+		sendTrans(conn, trans)
+		return
+	}
+
 	if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|0777); err != nil {
 		panic(err)
 	}
