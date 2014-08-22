@@ -15,7 +15,7 @@ type Job interface {
 type Map interface {
 	Job
 	Start()
-	Do()
+	Do(key, subKey, value []byte, output *JobOutput)
 	Finish()
 }
 

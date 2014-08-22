@@ -3,6 +3,7 @@ package hipstmr
 import (
 	"net"
 	"encoding/json"
+	"code.google.com/p/go-uuid/uuid"
 )
 
 
@@ -20,4 +21,11 @@ func (self *Transaction) Send(conn net.Conn) error {
 	}
 	conn.Write(bytes)
 	return nil
+}
+
+func NewTransaction(status string) Transaction {
+	return Transaction{
+		Id: uuid.New(),
+		Status: status,
+	}
 }

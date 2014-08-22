@@ -115,9 +115,21 @@ func onTransaction(trans hipstmr.Transaction, conn net.Conn) {
 	trans.Status = "running"
 	sendTrans(conn, trans)
 	fmt.Println("Transaction " + trans.Id + " " + trans.Status)
-	cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob", "-type", trans.Params.Type, "-name", trans.Params.Name)
-	cmd.Stdin = bytes.NewReader(trans.Params.Object)
-	out, err := cmd.Output()
+	cfg := hipstmr.JobConfig{
+		Jtype: trans.Params.Type,
+		Name: trans.Params.Name,
+		Chunks: trans.Params.Chunks,
+		Object: trans.Params.Object,
+		OutputTables: trans.Params.OutputTables,
+	}
+	buf, err := json.Marshal(cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob")
+	cmd.Stdin = bytes.NewReader(buf)
+	out, err := cmd.CombinedOutput()
 	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 	fmt.Print(string(out))
 	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
