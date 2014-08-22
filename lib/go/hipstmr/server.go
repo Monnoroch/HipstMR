@@ -37,15 +37,16 @@ func NewServer(address string) Server {
 }
 
 func (self *Server) Map(params *Params, mapObj Map) error {
-	params.Type = "map"
-	params.Name = mapObj.Name()
 	buf, err := json.Marshal(mapObj)
 	if err != nil {
 		return err
 	}
+
+	params.Type = "map"
+	params.Name = mapObj.Name()
 	params.Object = buf
 
-	var trans Transaction
+	var trans transaction
 	trans.Params = params
 	trans.Status = "starting"
 
@@ -60,23 +61,16 @@ func (self *Server) Map(params *Params, mapObj Map) error {
 	}
 	defer conn.Close()
 
-	total := len(res)
-	sum := 0
-	for ; sum != total; {
-		n, err := conn.Write(res)
-		if err != nil {
-			return err
-		}
-		sum += n
-		res = res[:n]
+	if err := writeAll(conn, res); err != nil {
+		return err
 	}
 
 	reader := bufio.NewReader(conn)
 	decoder := json.NewDecoder(reader)
 
 	for {
-		var trans Transaction
-		err = decoder.Decode(&trans)
+		var t transaction
+		err = decoder.Decode(&t)
 		if err == io.EOF {
 			break
 		}
@@ -85,11 +79,32 @@ func (self *Server) Map(params *Params, mapObj Map) error {
 			return err
 		}
 
-		fmt.Println("Transaction " + trans.Id + " " + trans.Status)
+		fmt.Println("Transaction " + t.Id + ": " + t.Status)
 	}
 	return nil
 }
 
 func (self *Server) MapIO(from, to string, mapObj Map) error {
 	return self.Map(NewParamsIO(from, to), mapObj)
+}
+
+
+type transaction struct {
+	Id string `json:"id"`
+	Status string `json:"status"`
+	Params *Params `json:"params"`
+}
+
+func writeAll(conn net.Conn, buf []byte) error {
+	total := len(buf)
+	sum := 0
+	for ; sum != total; {
+		n, err := conn.Write(buf)
+		if err != nil {
+			return err
+		}
+		sum += n
+		buf = buf[:n]
+	}
+	return nil
 }

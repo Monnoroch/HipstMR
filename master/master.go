@@ -9,22 +9,23 @@ import (
 	"errors"
 	"encoding/json"
 	"code.google.com/p/go-uuid/uuid"
+	"HipstMR/helper"
 	"HipstMR/lib/go/hipstmr"
 )
 
 
-func sendTrans(conn net.Conn, trans hipstmr.Transaction) error {
-	trans.Params = nil
+func sendTrans(conn net.Conn, trans helper.Transaction) error {
+	trans.Params.Params = nil
 	return trans.Send(conn)
 }
 
-func sendTransOrPrint(conn net.Conn, trans hipstmr.Transaction) {
+func sendTransOrPrint(conn net.Conn, trans helper.Transaction) {
 	if err := sendTrans(conn, trans); err != nil {
 		fmt.Println("Error:", err)
 	}
 }
 
-func sendTransOrFail(conn net.Conn, trans hipstmr.Transaction) error {
+func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
 	if err := sendTrans(conn, trans); err != nil {
 		trans.Status = "failed"
 		sendTrans(conn, trans)
@@ -37,7 +38,7 @@ func sendTransOrFail(conn net.Conn, trans hipstmr.Transaction) error {
 type Signal struct {}
 
 type Task struct {
-	trans hipstmr.Transaction
+	trans helper.Transaction
 	signal chan Signal
 }
 
@@ -46,12 +47,12 @@ type Slave struct {
 	id string
 	conn net.Conn
 	decoder *json.Decoder
-	transactions map[string]chan hipstmr.Transaction
+	transactions map[string]chan helper.Transaction
 }
 
 func (self *Slave) Run() error {
 	for {
-		var t hipstmr.Transaction
+		var t helper.Transaction
 		err := self.decoder.Decode(&t)
 		if err == io.EOF {
 			break
@@ -70,8 +71,8 @@ func (self *Slave) Run() error {
 	return nil
 }
 
-func (self *Slave) sendNewTransaction(trans hipstmr.Transaction, callback func(trans hipstmr.Transaction)) error {
-	ch := make(chan hipstmr.Transaction)
+func (self *Slave) sendNewTransaction(trans helper.Transaction, callback func(trans helper.Transaction)) error {
+	ch := make(chan helper.Transaction)
 	self.transactions[trans.Id] = ch
 	err := trans.Send(self.conn)
 	if err != nil {
@@ -86,8 +87,8 @@ func (self *Slave) sendNewTransaction(trans hipstmr.Transaction, callback func(t
 	return nil
 }
 
-func (self *Slave) sendNewOnceTransaction(trans hipstmr.Transaction, callback func(trans hipstmr.Transaction)) error {
-	ch := make(chan hipstmr.Transaction)
+func (self *Slave) sendNewOnceTransaction(trans helper.Transaction, callback func(trans helper.Transaction)) error {
+	ch := make(chan helper.Transaction)
 	self.transactions[trans.Id] = ch
 	err := trans.Send(self.conn)
 	if err != nil {
@@ -103,7 +104,7 @@ func (self *Slave) sendNewOnceTransaction(trans hipstmr.Transaction, callback fu
 }
 
 func (self *Slave) askForFS() error {
-	err := self.sendNewOnceTransaction(hipstmr.NewTransaction("get_chunks"), func(trans hipstmr.Transaction) {
+	err := self.sendNewOnceTransaction(helper.NewTransaction("get_chunks"), func(trans helper.Transaction) {
 		if trans.Status == "chunks" {
 			chs := trans.Payload.(map[string]interface{})
 			for k, v := range chs {
@@ -136,7 +137,7 @@ func NewSlave(conn net.Conn, decoder *json.Decoder) *Slave {
 		id: uuid.New(),
 		conn: conn,
 		decoder: decoder,
-		transactions: make(map[string]chan hipstmr.Transaction),
+		transactions: make(map[string]chan helper.Transaction),
 	}
 }
 
@@ -203,8 +204,8 @@ func getSlavesForTags(tags []string) ([]slaveChunks, error) {
 	return res, nil
 }
 
-func (self *Sheduler) GetSlavesTasks(trans hipstmr.Transaction) ([]slaveTask, error) { // TODO: smart choose
-	slaves, err := getSlavesForTags(trans.Params.InputTables)
+func (self *Sheduler) GetSlavesTasks(trans helper.Transaction) ([]slaveTask, error) { // TODO: smart choose
+	slaves, err := getSlavesForTags(trans.Params.Params.InputTables)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +213,6 @@ func (self *Sheduler) GetSlavesTasks(trans hipstmr.Transaction) ([]slaveTask, er
 	res := make([]slaveTask, len(slaves))
 	for i := 0; i < len(res); i++ {
 		tr := trans
-		tr.Params = tr.Params.Clone()
 		tr.Params.Chunks = slaves[i].chunks
 		res[i] = slaveTask{
 			task: Task{
@@ -225,13 +225,15 @@ func (self *Sheduler) GetSlavesTasks(trans hipstmr.Transaction) ([]slaveTask, er
 	return res, nil
 }
 
-func (self *Sheduler) RunTransaction(trans hipstmr.Transaction) bool {
-	slavesTasks, err := self.GetSlavesTasks(trans)
+func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) bool {
+	slavesTasks, err := self.GetSlavesTasks(*trans)
 	if err != nil {
 		fmt.Println(err)
 	}
 
 	if err != nil || len(slavesTasks) == 0 {
+		trans.Status = "failed"
+		sendTransOrPrint(conn, *trans)
 		return false
 	}
 
@@ -246,6 +248,18 @@ func (self *Sheduler) RunTransaction(trans hipstmr.Transaction) bool {
 		<-slavesTasks[i].task.signal
 		fmt.Println("Slave finished!")
 	}
+
+	trans.Status = "all files sent"
+	sendTransOrPrint(conn, *trans)
+
+	for i := 0; i < len(slavesTasks); i++ {
+		fmt.Println("Wait for a slave")
+		<-slavesTasks[i].task.signal
+		fmt.Println("Slave finished!")
+	}
+
+	trans.Status = "finished"
+	sendTransOrPrint(conn, *trans)
 
 	return true
 }
@@ -269,7 +283,7 @@ func (self *Sheduler) RemoveSlave(slave *Slave) {
 var sheduler *Sheduler
 
 
-func onNewClient(conn net.Conn, trans hipstmr.Transaction) error {
+func onNewClient(conn net.Conn, trans helper.Transaction) error {
 	fmt.Println("Accepted transaction")
 
 	trans.Id = uuid.New()
@@ -279,25 +293,10 @@ func onNewClient(conn net.Conn, trans hipstmr.Transaction) error {
 	}
 
 	fmt.Println("Run transaction")
-
-	if !sheduler.RunTransaction(trans) {
-		trans.Status = "failed"
-	}
-
-	sendTransOrPrint(conn, trans)
-
+	sheduler.RunTransaction(conn, &trans)
 	fmt.Println("Finished transaction")
 
 	return nil
-}
-
-func suckMessages(messages chan hipstmr.Transaction) string {
-	for msg := range messages {
-		if msg.Status == "finished" || msg.Status == "failed" {
-			return msg.Status
-		}
-	}
-	return ""
 }
 
 func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
@@ -313,7 +312,14 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 		for task := range slave.tasks {
 			fmt.Println("Accepted task")
 			fmt.Println("Run task")
-			err := slave.sendNewTransaction(task.trans, func(msg hipstmr.Transaction) {
+			task.trans.Status = "run_job"
+			err := slave.sendNewTransaction(task.trans, func(msg helper.Transaction) {
+				if msg.Status == "received_files" {
+					go func() {
+						task.signal <- Signal{}
+					}()
+				}
+
 				if msg.Status == "finished" || msg.Status == "failed" {
 					close(slave.transactions[msg.Id])
 				}
@@ -331,7 +337,6 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 				}
 
 				if msg.Status == "finished" || msg.Status == "failed" {
-					task.trans.Status = msg.Status
 					task.signal <- Signal{}
 				}
 			})
@@ -361,21 +366,48 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 	return nil
 }
 
+type handleClientTransaction struct {
+	Id string `json"id"`
+	Status string `json"status"`
+	Params json.RawMessage `json"params"`
+	Payload json.RawMessage `json"payload"`
+}
+
 func handle(conn net.Conn) {
 	defer conn.Close()
 
 	decoder := json.NewDecoder(bufio.NewReader(conn))
-	var trans hipstmr.Transaction
-	err := decoder.Decode(&trans)
+	var clTrans handleClientTransaction
+	err := decoder.Decode(&clTrans)
 	if err != nil {
 		panic(err)
 	}
 
-	if trans.Status == "starting" {
+	if clTrans.Status == "starting" {
+		trans := helper.Transaction{
+			Status: clTrans.Status,
+			Params: helper.Params{},
+		}
+
+		var ps hipstmr.Params
+		err := json.Unmarshal(clTrans.Params, &ps)
+		if err != nil {
+			panic(err)
+		}
+		trans.Params.Params = &ps
+
 		if err = onNewClient(conn, trans); err != nil {
 			panic(err)
 		}
-	} else if trans.Status == "slave_waiting" {
+	} else if clTrans.Status == "slave_waiting" {
+		trans := helper.Transaction{
+			Status: clTrans.Status,
+		}
+		err := json.Unmarshal(clTrans.Payload, &trans.Payload)
+		if err != nil {
+			panic(err)
+		}
+
 		if err = onNewSlave(conn, decoder); err != nil {
 			panic(err)
 		}

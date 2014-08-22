@@ -11,7 +11,6 @@ import (
 type Params struct {
 	InputTables []string  `json:"input_tables"`
 	OutputTables []string `json:"output_tables"`
-	Chunks []string `json:"chunks"`
 	Files map[string][]byte `json:"files"`
 	Type string `json:"type"`
 	Name string `json:"name"`
@@ -24,7 +23,6 @@ func (self *Params) MarshalJSON() ([]byte, error) {
 	obj["type"] = self.Type
 	obj["input_tables"] = self.InputTables
 	obj["output_tables"] = self.OutputTables
-	obj["chunks"] = self.Chunks
 	obj["job"] = self.Object
 	files := make(map[string][]byte)
 	for k, v := range(self.Files) {
@@ -72,18 +70,6 @@ func (self *Params) AddInput(name string) *Params {
 func (self *Params) AddOutput(name string) *Params {
 	self.OutputTables = append(self.OutputTables, name)
 	return self
-}
-
-func (self *Params) Clone() *Params {
-	return &Params{
-		InputTables: self.InputTables,
-		OutputTables: self.OutputTables,
-		Chunks: self.Chunks,
-		Files: self.Files,
-		Type: self.Type,
-		Name: self.Name,
-		Object: self.Object,
-	}
 }
 
 func NewParams() *Params {

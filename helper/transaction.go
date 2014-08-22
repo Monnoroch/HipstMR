@@ -1,16 +1,23 @@
-package hipstmr
+package helper
 
 import (
+	// "fmt"
 	"net"
 	"encoding/json"
 	"code.google.com/p/go-uuid/uuid"
+	"HipstMR/lib/go/hipstmr"
 )
 
 
+type Params struct {
+	Params *hipstmr.Params `json:"params"`
+	Chunks []string `json:"chunks"`
+}
+
 type Transaction struct {
-	Params *Params `json:"params"`
 	Id string `json:"id"`
 	Status string `json:"status"`
+	Params Params `json:"params"`
 	Payload interface{} `json:"payload"`
 }
 

@@ -5,7 +5,6 @@ import (
 	"net"
 	"io"
 	"io/ioutil"
-	"time"
 	"os"
 	"os/exec"
 	"path"
@@ -15,8 +14,16 @@ import (
 	"strings"
 	"flag"
 	"encoding/json"
-	"HipstMR/lib/go/hipstmr"
+	"HipstMR/helper"
 )
+
+type JobConfig struct {
+	Jtype string `json:"type"`
+	Name string `json:"name"`
+	Chunks []string `json:"chunks"`
+	OutputTables []string `json:"output_tables"`
+	Object []byte `json:"object"`
+}
 
 func traverseDirectoryRec(name string, isRoot bool) (map[string][]string, error) {
 	p := path.Clean(name)
@@ -62,9 +69,9 @@ func traverseDirectory(name string) (map[string][]string, error) {
 	return traverseDirectoryRec(name, true)
 }
 
-func dumpTransaction(trans hipstmr.Transaction) string {
+func dumpTransaction(trans helper.Transaction) string {
 	res := ""
-	for k, v := range trans.Params.Files {
+	for k, v := range trans.Params.Params.Files {
 		isBinary := false
 		if k[0] == '!' {
 			k = k[1:]
@@ -90,7 +97,7 @@ func dumpTransaction(trans hipstmr.Transaction) string {
 	return res
 }
 
-func onTransaction(trans hipstmr.Transaction, conn net.Conn) {
+func onTransaction(trans helper.Transaction, conn net.Conn) {
 	if trans.Status == "get_chunks" {
 		dir, err := traverseDirectory("data/")
 		if err != nil {
@@ -103,53 +110,70 @@ func onTransaction(trans hipstmr.Transaction, conn net.Conn) {
 		trans.Status = "chunks"
 		sendTrans(conn, trans)
 		return
+	} else if trans.Status == "run_job" {
+		trans.Status = "received_files"
+		go sendTransOrPrint(conn, trans)
+
+		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|0777); err != nil {
+			panic(err)
+		}
+		defer os.RemoveAll(trans.Id)
+
+		bin := dumpTransaction(trans)
+
+		trans.Status = "running"
+		sendTrans(conn, trans)
+		fmt.Println("Transaction " + trans.Id + " " + trans.Status)
+		cfg := JobConfig{
+			Jtype: trans.Params.Params.Type,
+			Name: trans.Params.Params.Name,
+			Chunks: trans.Params.Chunks,
+			Object: trans.Params.Params.Object,
+			OutputTables: trans.Params.Params.OutputTables,
+		}
+		buf, err := json.Marshal(cfg)
+		if err != nil {
+			panic(err)
+		}
+
+		cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob")
+		cmd.Stdin = bytes.NewReader(buf)
+		out, err := cmd.CombinedOutput()
+		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+		fmt.Print(string(out))
+		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
+		if err != nil {
+			panic(err)
+		}
+
+		trans.Status = "finished"
+		sendTrans(conn, trans)
 	}
-
-	if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|0777); err != nil {
-		panic(err)
-	}
-	defer os.RemoveAll(trans.Id)
-
-	bin := dumpTransaction(trans)
-
-	trans.Status = "running"
-	sendTrans(conn, trans)
-	fmt.Println("Transaction " + trans.Id + " " + trans.Status)
-	cfg := hipstmr.JobConfig{
-		Jtype: trans.Params.Type,
-		Name: trans.Params.Name,
-		Chunks: trans.Params.Chunks,
-		Object: trans.Params.Object,
-		OutputTables: trans.Params.OutputTables,
-	}
-	buf, err := json.Marshal(cfg)
-	if err != nil {
-		panic(err)
-	}
-
-	cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob")
-	cmd.Stdin = bytes.NewReader(buf)
-	out, err := cmd.CombinedOutput()
-	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-	fmt.Print(string(out))
-	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-
-	if err != nil {
-		panic(err)
-	}
-
-	time.Sleep(time.Millisecond * 500)
-	trans.Status = "finished"
-	sendTrans(conn, trans)
 }
 
-func sendTrans(conn net.Conn, trans hipstmr.Transaction) error {
-	trans.Params = nil
+func sendTrans(conn net.Conn, trans helper.Transaction) error {
+	trans.Params.Params = nil
 	bytes, err := json.Marshal(trans)
 	if err != nil {
 		return err
 	}
 	conn.Write(bytes)
+	return nil
+}
+
+func sendTransOrPrint(conn net.Conn, trans helper.Transaction) {
+	if err := sendTrans(conn, trans); err != nil {
+		fmt.Println("Error:", err)
+	}
+}
+
+func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
+	if err := sendTrans(conn, trans); err != nil {
+		trans.Status = "failed"
+		sendTrans(conn, trans)
+		return err
+	}
 	return nil
 }
 
@@ -162,7 +186,7 @@ func main() {
 		return
 	}
 
-	var trans hipstmr.Transaction
+	var trans helper.Transaction
 	trans.Status = "slave_waiting"
 
 	res, err := json.Marshal(&trans)
@@ -181,7 +205,7 @@ func main() {
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 
 	for {
-		var trans hipstmr.Transaction
+		var trans helper.Transaction
 		err = decoder.Decode(&trans)
 		if err == io.EOF {
 			break
