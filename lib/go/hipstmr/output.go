@@ -108,11 +108,11 @@ func writeValue(writer io.Writer, value []byte) error {
 	return nil
 }
 
-func newOutput(tables []string) (*JobOutput, error) {
+func newOutput(tables []string, mnt string) (*JobOutput, error) {
 	baseWriters := make([]io.WriteCloser, len(tables))
 	writers := make([]*bufio.Writer, len(tables))
 	for i, v := range tables {
-		f, err := os.Create(fmt.Sprintf("data/%s.chunk.%d", v, i))
+		f, err := os.Create(fmt.Sprintf("%s%s.chunk.%d", mnt, v, i))
 		if err != nil {
 			return nil, err
 		}

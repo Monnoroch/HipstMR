@@ -3,6 +3,7 @@ package hipstmr
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,6 +17,16 @@ func Init() {
 	}
 	defer os.Exit(0)
 
+	fs := flag.NewFlagSet("hipstmrjob", flag.PanicOnError)
+	hipstmrjob := fs.Bool("hipstmrjob", false, "run as a MR job")
+	mnt := fs.String("mnt", "", "mount point")
+	fs.Parse(os.Args[1:])
+
+	if !*hipstmrjob || *mnt == "" {
+		fs.PrintDefaults()
+		return
+	}
+
 	cfg, err := parseConfig()
 	if err != nil {
 		panic(err)
@@ -24,7 +35,7 @@ func Init() {
 	fmt.Println("Run job " + cfg.Jtype + ", " + cfg.Name + " on chunks {" + strings.Join(cfg.Chunks, ", ") + "}")
 
 	if cfg.Jtype == "map" {
-		runMap(cfg)
+		runMap(cfg, *mnt)
 	}
 }
 
@@ -50,7 +61,7 @@ func parseConfig() (jobConfig, error) {
 	return cfg, nil
 }
 
-func runMap(cfg jobConfig) {
+func runMap(cfg jobConfig, mnt string) {
 	job, err := createMap(cfg)
 	if err != nil {
 		panic(err)
@@ -59,7 +70,7 @@ func runMap(cfg jobConfig) {
 	var baseReaders []io.ReadCloser
 	var readers []io.Reader
 	for _, c := range cfg.Chunks {
-		f, err := os.Open("data/" + c)
+		f, err := os.Open(mnt + c)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -74,7 +85,7 @@ func runMap(cfg jobConfig) {
 		}
 	}()
 
-	output, err := newOutput(cfg.OutputTables)
+	output, err := newOutput(cfg.OutputTables, mnt)
 	if err != nil {
 		fmt.Println(err)
 	}

@@ -99,7 +99,7 @@ func dumpTransaction(trans helper.Transaction) string {
 
 func onTransaction(trans helper.Transaction, conn net.Conn) {
 	if trans.Status == "get_chunks" {
-		dir, err := traverseDirectory("data/")
+		dir, err := traverseDirectory(mnt)
 		if err != nil {
 			trans.Status = "failed"
 			sendTrans(conn, trans)
@@ -136,7 +136,7 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 			panic(err)
 		}
 
-		cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob")
+		cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob", "-mnt", mnt)
 		cmd.Stdin = bytes.NewReader(buf)
 		out, err := cmd.CombinedOutput()
 		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -177,13 +177,22 @@ func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
 	return nil
 }
 
+var mnt string
+
 func main() {
 	help := flag.Bool("help", false, "print this help")
 	master := flag.String("master", "", "master adress")
+	mntv := flag.String("mnt", "", "mount point")
 	flag.Parse()
-	if *help || *master == "" {
+	if *help || *master == "" || *mntv == "" {
 		flag.PrintDefaults()
 		return
+	}
+
+	mnt = *mntv
+
+	if mnt[len(mnt)-1] != '/' {
+		mnt += "/"
 	}
 
 	var trans helper.Transaction
