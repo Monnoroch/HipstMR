@@ -1,20 +1,18 @@
 package hipstmr
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
-	"encoding/json"
 )
-
 
 func Register(job Job) error {
 	initDefaultRegister()
 	return defaultRegister.add(job)
 }
 
-
 type register struct {
-	maps map[string]Map
+	maps     map[string]Map
 	reducews map[string]Reduce
 }
 
@@ -41,13 +39,12 @@ func (self *register) createMap(cfg jobConfig) (Map, error) {
 	return vi.(Map), nil
 }
 
-
 var defaultRegister register
 
 func initDefaultRegister() {
 	if defaultRegister.maps == nil {
 		defaultRegister = register{
-			maps: map[string]Map{},
+			maps:     map[string]Map{},
 			reducews: map[string]Reduce{},
 		}
 	}

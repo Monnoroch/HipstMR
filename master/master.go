@@ -1,18 +1,17 @@
 package main
 
 import (
-	"net"
-	"fmt"
-	"bufio"
-	"flag"
-	"io"
-	"errors"
-	"encoding/json"
-	"code.google.com/p/go-uuid/uuid"
 	"HipstMR/helper"
 	"HipstMR/lib/go/hipstmr"
+	"bufio"
+	"code.google.com/p/go-uuid/uuid"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
 )
-
 
 func sendTrans(conn net.Conn, trans helper.Transaction) error {
 	trans.Params.Params = nil
@@ -34,19 +33,18 @@ func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
 	return nil
 }
 
-
-type Signal struct {}
+type Signal struct{}
 
 type Task struct {
-	trans helper.Transaction
+	trans  helper.Transaction
 	signal chan Signal
 }
 
 type Slave struct {
-	tasks chan Task
-	id string
-	conn net.Conn
-	decoder *json.Decoder
+	tasks        chan Task
+	id           string
+	conn         net.Conn
+	decoder      *json.Decoder
 	transactions map[string]chan helper.Transaction
 }
 
@@ -133,10 +131,10 @@ func (self *Slave) askForFS() error {
 
 func NewSlave(conn net.Conn, decoder *json.Decoder) *Slave {
 	return &Slave{
-		tasks: make(chan Task),
-		id: uuid.New(),
-		conn: conn,
-		decoder: decoder,
+		tasks:        make(chan Task),
+		id:           uuid.New(),
+		conn:         conn,
+		decoder:      decoder,
 		transactions: make(map[string]chan helper.Transaction),
 	}
 }
@@ -155,14 +153,14 @@ func (self *Sheduler) GetSlave(id string) *Slave {
 }
 
 type slaveTask struct {
-	task Task
+	task  Task
 	slave *Slave
 }
 
 var FS map[string]map[string][]string
 
 type slaveChunks struct {
-	slave *Slave
+	slave  *Slave
 	chunks []string
 }
 
@@ -190,14 +188,14 @@ func getSlavesForTags(tags []string) ([]slaveChunks, error) {
 
 			if found == -1 {
 				res = append(res, slaveChunks{
-					slave: slave,
+					slave:  slave,
 					chunks: nil,
 				})
 				found = len(res) - 1
 			}
 
 			for _, vvv := range vv {
-				res[found].chunks = append(res[found].chunks, v + ".chunk." + vvv)
+				res[found].chunks = append(res[found].chunks, v+".chunk."+vvv)
 			}
 		}
 	}
@@ -216,7 +214,7 @@ func (self *Sheduler) GetSlavesTasks(trans helper.Transaction) ([]slaveTask, err
 		tr.Params.Chunks = slaves[i].chunks
 		res[i] = slaveTask{
 			task: Task{
-				trans: tr,
+				trans:  tr,
 				signal: make(chan Signal),
 			},
 			slave: slaves[i].slave,
@@ -281,7 +279,6 @@ func (self *Sheduler) RemoveSlave(slave *Slave) {
 }
 
 var sheduler *Sheduler
-
 
 func onNewClient(conn net.Conn, trans helper.Transaction) error {
 	fmt.Println("Accepted transaction")
@@ -367,9 +364,9 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 }
 
 type handleClientTransaction struct {
-	Id string `json"id"`
-	Status string `json"status"`
-	Params json.RawMessage `json"params"`
+	Id      string          `json"id"`
+	Status  string          `json"status"`
+	Params  json.RawMessage `json"params"`
 	Payload json.RawMessage `json"payload"`
 }
 

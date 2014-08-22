@@ -2,22 +2,21 @@ package helper
 
 import (
 	// "fmt"
-	"net"
-	"encoding/json"
-	"code.google.com/p/go-uuid/uuid"
 	"HipstMR/lib/go/hipstmr"
+	"code.google.com/p/go-uuid/uuid"
+	"encoding/json"
+	"net"
 )
-
 
 type Params struct {
 	Params *hipstmr.Params `json:"params"`
-	Chunks []string `json:"chunks"`
+	Chunks []string        `json:"chunks"`
 }
 
 type Transaction struct {
-	Id string `json:"id"`
-	Status string `json:"status"`
-	Params Params `json:"params"`
+	Id      string      `json:"id"`
+	Status  string      `json:"status"`
+	Params  Params      `json:"params"`
 	Payload interface{} `json:"payload"`
 }
 
@@ -32,7 +31,7 @@ func (self *Transaction) Send(conn net.Conn) error {
 
 func NewTransaction(status string) Transaction {
 	return Transaction{
-		Id: uuid.New(),
+		Id:     uuid.New(),
 		Status: status,
 	}
 }

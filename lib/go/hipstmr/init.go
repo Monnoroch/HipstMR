@@ -1,15 +1,14 @@
 package hipstmr
 
 import (
-	"os"
-	"fmt"
-	"strings"
 	"bufio"
+	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"encoding/json"
+	"os"
+	"strings"
 )
-
 
 func Init() {
 	if os.Args[1] != "-hipstmrjob" {
@@ -29,13 +28,12 @@ func Init() {
 	}
 }
 
-
 type jobConfig struct {
-	Jtype string `json:"type"`
-	Name string `json:"name"`
-	Chunks []string `json:"chunks"`
+	Jtype        string   `json:"type"`
+	Name         string   `json:"name"`
+	Chunks       []string `json:"chunks"`
 	OutputTables []string `json:"output_tables"`
-	Object []byte `json:"object"`
+	Object       []byte   `json:"object"`
 }
 
 func parseConfig() (jobConfig, error) {
@@ -84,7 +82,7 @@ func runMap(cfg jobConfig) {
 
 	job.Start()
 
-	for ;; {
+	for {
 		key, err := readValue(reader)
 		if err == io.EOF {
 			break

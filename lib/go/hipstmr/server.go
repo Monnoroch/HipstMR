@@ -1,11 +1,11 @@
 package hipstmr
 
 import (
-	"net"
-	"fmt"
-	"io"
 	"bufio"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net"
 )
 
 type Job interface {
@@ -88,17 +88,16 @@ func (self *Server) MapIO(from, to string, mapObj Map) error {
 	return self.Map(NewParamsIO(from, to), mapObj)
 }
 
-
 type transaction struct {
-	Id string `json:"id"`
-	Status string `json:"status"`
+	Id     string  `json:"id"`
+	Status string  `json:"status"`
 	Params *Params `json:"params"`
 }
 
 func writeAll(conn net.Conn, buf []byte) error {
 	total := len(buf)
 	sum := 0
-	for ; sum != total; {
+	for sum != total {
 		n, err := conn.Write(buf)
 		if err != nil {
 			return err

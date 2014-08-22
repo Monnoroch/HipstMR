@@ -1,28 +1,28 @@
 package main
 
 import (
+	"HipstMR/helper"
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
-	"net"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path"
-	"errors"
-	"bufio"
-	"bytes"
 	"strings"
-	"flag"
-	"encoding/json"
-	"HipstMR/helper"
 )
 
 type JobConfig struct {
-	Jtype string `json:"type"`
-	Name string `json:"name"`
-	Chunks []string `json:"chunks"`
+	Jtype        string   `json:"type"`
+	Name         string   `json:"name"`
+	Chunks       []string `json:"chunks"`
 	OutputTables []string `json:"output_tables"`
-	Object []byte `json:"object"`
+	Object       []byte   `json:"object"`
 }
 
 func traverseDirectoryRec(name string, isRoot bool) (map[string][]string, error) {
@@ -125,10 +125,10 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		sendTrans(conn, trans)
 		fmt.Println("Transaction " + trans.Id + " " + trans.Status)
 		cfg := JobConfig{
-			Jtype: trans.Params.Params.Type,
-			Name: trans.Params.Params.Name,
-			Chunks: trans.Params.Chunks,
-			Object: trans.Params.Params.Object,
+			Jtype:        trans.Params.Params.Type,
+			Name:         trans.Params.Params.Name,
+			Chunks:       trans.Params.Chunks,
+			Object:       trans.Params.Params.Object,
 			OutputTables: trans.Params.Params.OutputTables,
 		}
 		buf, err := json.Marshal(cfg)

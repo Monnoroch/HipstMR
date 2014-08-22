@@ -1,20 +1,19 @@
 package hipstmr
 
 import (
-	"os"
-	"io/ioutil"
 	"encoding/json"
+	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
-
 type Params struct {
-	InputTables []string  `json:"input_tables"`
-	OutputTables []string `json:"output_tables"`
-	Files map[string][]byte `json:"files"`
-	Type string `json:"type"`
-	Name string `json:"name"`
-	Object []byte `json:"job"`
+	InputTables  []string          `json:"input_tables"`
+	OutputTables []string          `json:"output_tables"`
+	Files        map[string][]byte `json:"files"`
+	Type         string            `json:"type"`
+	Name         string            `json:"name"`
+	Object       []byte            `json:"job"`
 }
 
 func (self *Params) MarshalJSON() ([]byte, error) {
@@ -25,7 +24,7 @@ func (self *Params) MarshalJSON() ([]byte, error) {
 	obj["output_tables"] = self.OutputTables
 	obj["job"] = self.Object
 	files := make(map[string][]byte)
-	for k, v := range(self.Files) {
+	for k, v := range self.Files {
 		isSelf := false
 		if k[0] == '!' {
 			k = k[1:]
@@ -53,7 +52,7 @@ func (self *Params) MarshalJSON() ([]byte, error) {
 }
 
 func (self *Params) SetBinary() *Params {
-	self.Files["!" + os.Args[0]] = nil
+	self.Files["!"+os.Args[0]] = nil
 	return self
 }
 
@@ -74,16 +73,16 @@ func (self *Params) AddOutput(name string) *Params {
 
 func NewParams() *Params {
 	return (&Params{
-		InputTables: []string{},
+		InputTables:  []string{},
 		OutputTables: []string{},
-		Files: map[string][]byte{},
+		Files:        map[string][]byte{},
 	}).SetBinary()
 }
 
 func NewParamsIO(in, out string) *Params {
 	return (&Params{
-		InputTables: []string{in},
+		InputTables:  []string{in},
 		OutputTables: []string{out},
-		Files: map[string][]byte{},
+		Files:        map[string][]byte{},
 	}).SetBinary()
 }

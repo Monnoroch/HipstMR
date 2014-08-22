@@ -1,8 +1,8 @@
 package main
 
 import (
-	"os"
 	"encoding/binary"
+	"os"
 )
 
 func WriteValueToFile(f *os.File, value string) {

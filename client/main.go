@@ -5,6 +5,7 @@ import (
 	"HipstMR/lib/go/hipstmr"
 )
 
+
 type MyMap struct {
 	Val string `json:"val"`
 }

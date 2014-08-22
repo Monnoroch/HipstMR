@@ -1,20 +1,19 @@
 package hipstmr
 
 import (
-	"os"
-	"fmt"
 	"bufio"
-	"errors"
-	"io"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"os"
 )
 
-
 type JobOutput struct {
-	tables []string
+	tables      []string
 	baseWriters []io.WriteCloser
-	writers []*bufio.Writer
-	current int
+	writers     []*bufio.Writer
+	current     int
 }
 
 func (self *JobOutput) close() error {
@@ -121,9 +120,9 @@ func newOutput(tables []string) (*JobOutput, error) {
 	}
 
 	return &JobOutput{
-		tables: tables,
+		tables:      tables,
 		baseWriters: baseWriters,
-		writers: writers,
-		current: 0,
+		writers:     writers,
+		current:     0,
 	}, nil
 }
