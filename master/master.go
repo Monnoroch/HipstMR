@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path"
 	"net"
 )
 
@@ -38,6 +39,7 @@ type Signal interface{}
 type Task struct {
 	trans  helper.Transaction
 	signal chan Signal
+	Id string
 }
 
 type Slave struct {
@@ -210,12 +212,19 @@ func (self *Sheduler) GetSlavesTasks(trans helper.Transaction) ([]slaveTask, err
 
 	res := make([]slaveTask, len(slaves))
 	for i := 0; i < len(res); i++ {
+		taskId := uuid.New()
 		tr := trans
+		tr.Status = "run_job"
 		tr.Params.Chunks = slaves[i].chunks
+		tr.Params.OutputTables = make([]string, len(tr.Params.Params.OutputTables))
+		for i, v := range tr.Params.Params.OutputTables {
+			tr.Params.OutputTables[i] = path.Join("tmp", tr.Id, taskId, v)
+		}
 		res[i] = slaveTask{
 			task: Task{
 				trans:  tr,
 				signal: make(chan Signal),
+				Id: taskId,
 			},
 			slave: slaves[i].slave,
 		}
@@ -223,16 +232,14 @@ func (self *Sheduler) GetSlavesTasks(trans helper.Transaction) ([]slaveTask, err
 	return res, nil
 }
 
-func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) bool {
+func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) (bool, string) {
 	slavesTasks, err := self.GetSlavesTasks(*trans)
 	if err != nil {
 		fmt.Println(err)
 	}
 
 	if err != nil || len(slavesTasks) == 0 {
-		trans.Status = "failed"
-		sendTransOrPrint(conn, *trans)
-		return false
+		return false, ""
 	}
 
 	for i := 0; i < len(slavesTasks); i++ {
@@ -242,9 +249,9 @@ func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) b
 	}
 
 	for i := 0; i < len(slavesTasks); i++ {
-		fmt.Println("Wait for a slave")
+		fmt.Println("Sending files...")
 		<-slavesTasks[i].task.signal
-		fmt.Println("Slave finished!")
+		fmt.Println("Files sent!")
 	}
 
 	trans.Status = "all files sent"
@@ -257,11 +264,46 @@ func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) b
 		fmt.Println("Slave finished!")
 	}
 
-	trans.Status = "finished"
-	trans.Payload = stderr
-	sendTransOrPrint(conn, *trans)
+	// fmt.Println("Start moving")
 
-	return true
+	/// move
+	// movetasks := make([]Task, len(slavesTasks))
+	// for i, v := range slavesTasks {
+	// 	move := helper.NewTransaction("move")
+	// 	move.Params = helper.Params{
+	// 		Params: &hipstmr.Params{
+	// 			Type: "move",
+	// 			InputTables: v.task.trans.Params.OutputTables,
+	// 		},
+	// 		Chunks: nil,
+	// 		OutputTables: trans.Params.Params.OutputTables,
+	// 	}
+
+	// 	movetasks[i] = Task{
+	// 		trans:  move,
+	// 		signal: make(chan Signal),
+	// 	}
+	// }
+
+	// for i := 0; i < len(slavesTasks); i++ {
+	// 	fmt.Println("Sending move task to a slave")
+	// 	slavesTasks[i].slave.tasks <- movetasks[i]
+	// 	fmt.Println("Sent move task to a slave")
+	// }
+
+	// for i := 0; i < len(slavesTasks); i++ {
+	// 	fmt.Println("Sending move files...")
+	// 	<-slavesTasks[i].task.signal
+	// 	fmt.Println("Files move sent!")
+	// }
+
+	// for i := 0; i < len(slavesTasks); i++ {
+	// 	fmt.Println("Wait for a slave move")
+	// 	<-slavesTasks[i].task.signal
+	// 	fmt.Println("Slave move finished!")
+	// }
+
+	return true, stderr
 }
 
 func (self *Sheduler) AddSlave(conn net.Conn, decoder *json.Decoder) *Slave {
@@ -292,8 +334,16 @@ func onNewClient(conn net.Conn, trans helper.Transaction) error {
 	}
 
 	fmt.Println("Run transaction")
-	sheduler.RunTransaction(conn, &trans)
+	ok, stderr := sheduler.RunTransaction(conn, &trans)
 	fmt.Println("Finished transaction")
+
+	if !ok {
+		trans.Status = "failed"
+	} else {
+		trans.Status = "finished"
+	}
+	trans.Payload = stderr
+	sendTransOrPrint(conn, trans)
 
 	return nil
 }
@@ -311,7 +361,6 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 		for task := range slave.tasks {
 			fmt.Println("Accepted task")
 			fmt.Println("Run task")
-			task.trans.Status = "run_job"
 			err := slave.sendNewTransaction(task.trans, func(msg helper.Transaction) {
 				if msg.Status == "received_files" {
 					go func() {

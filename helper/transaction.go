@@ -11,10 +11,12 @@ import (
 type Params struct {
 	Params *hipstmr.Params `json:"params"`
 	Chunks []string        `json:"chunks"`
+	OutputTables []string `json:"output_tables"`
 }
 
 type Transaction struct {
 	Id      string      `json:"id"`
+	Action string `json:"action"`
 	Status  string      `json:"status"`
 	Params  Params      `json:"params"`
 	Payload interface{} `json:"payload"`

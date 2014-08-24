@@ -1,35 +1,66 @@
 package hipstmr
 
 import (
-	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"bytes"
 	"os"
+	"path"
 )
 
 type JobOutput struct {
 	tables      []string
-	baseWriters []io.WriteCloser
-	writers     []*bufio.Writer
+	buffers []*bytes.Buffer
+	counters []uint
 	current     int
+	mnt string
+	maxChunkSize int
 }
 
 func (self *JobOutput) close() error {
 	var res error = nil
-	for i, v := range self.writers {
-		err := v.Flush()
-		if err != nil && res == nil {
-			res = err
-		}
-
-		err = self.baseWriters[i].Close()
+	for i, _ := range self.buffers {
+		err := self.writeChunk(i)
 		if err != nil && res == nil {
 			res = err
 		}
 	}
 	return res
+}
+
+func (self *JobOutput) writeChunk(cur int) error {
+	buf := self.buffers[cur]
+	if buf.Len() == 0 {
+		return nil
+	}
+
+	name := path.Join(self.mnt, fmt.Sprintf("%s.chunk.%d", self.tables[cur], self.counters[cur]))
+	base := path.Dir(name)
+	if err := os.MkdirAll(base, os.ModeDir|os.ModeTemporary|os.ModePerm); err != nil {
+		return err
+    }
+
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	n, err := f.Write(buf.Bytes())
+	if err != nil {
+		return err
+	}
+	if n != buf.Len() {
+		return errors.New(fmt.Sprintf("Wrote only %d bytes from %d.", n, buf.Len()))
+	}
+
+	self.counters[cur]++
+	buf.Reset()
+	// cmdPrefix := "!hipstmrjob: "
+	// fmt.Println(cmdPrefix + self.tables[cur] + " -> " + name)
+	return nil
 }
 
 func (self *JobOutput) SetCurrent(v int) error {
@@ -42,20 +73,31 @@ func (self *JobOutput) SetCurrent(v int) error {
 }
 
 func (self *JobOutput) Add(key, subKey, value []byte) error {
+	cur := self.current
+	buf := self.buffers[cur]
+	size := buf.Len()
+	newSize := size + 2 * 3 + len(key) + len(subKey) + len(value)
+	if newSize > self.maxChunkSize {
+		if err := self.writeChunk(cur); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}
+
 	fmt.Println(string(key), string(subKey), string(value))
-	err := writeValue(self.writers[self.current], key)
+
+	err := writeValue(buf, key)
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, err)
 	}
 
-	err = writeValue(self.writers[self.current], subKey)
+	err = writeValue(buf, subKey)
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, err)
 	}
 
-	err = writeValue(self.writers[self.current], value)
+	err = writeValue(buf, value)
 	if err != nil {
-		return err
+		fmt.Fprintln(os.Stderr, err)
 	}
 	return nil
 }
@@ -109,20 +151,18 @@ func writeValue(writer io.Writer, value []byte) error {
 }
 
 func newOutput(tables []string, mnt string) (*JobOutput, error) {
-	baseWriters := make([]io.WriteCloser, len(tables))
-	writers := make([]*bufio.Writer, len(tables))
-	for i, v := range tables {
-		f, err := os.Create(fmt.Sprintf("%s%s.chunk.%d", mnt, v, i))
-		if err != nil {
-			return nil, err
-		}
-		writers[i] = bufio.NewWriter(f)
+	// writers := make([]io.WriteCloser, len(tables))
+	buffers := make([]*bytes.Buffer, len(tables))
+	for i, _ := range tables {
+		buffers[i] = &bytes.Buffer{}
 	}
 
 	return &JobOutput{
+		mnt: mnt,
 		tables:      tables,
-		baseWriters: baseWriters,
-		writers:     writers,
 		current:     0,
+		maxChunkSize: 40,
+		buffers:  buffers,
+		counters: make([]uint, len(tables)), // assume default zero
 	}, nil
 }

@@ -88,7 +88,7 @@ func dumpTransaction(trans helper.Transaction) string {
 		f.Close()
 
 		if isBinary {
-			if err := os.Chmod(p, 0777); err != nil {
+			if err := os.Chmod(p, os.ModePerm); err != nil {
 				panic(err)
 			}
 			res = k
@@ -98,6 +98,9 @@ func dumpTransaction(trans helper.Transaction) string {
 }
 
 func onTransaction(trans helper.Transaction, conn net.Conn) {
+	fmt.Println(trans)
+	return
+
 	if trans.Status == "get_chunks" {
 		dir, err := traverseDirectory(mnt)
 		if err != nil {
@@ -110,11 +113,24 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		trans.Status = "chunks"
 		sendTrans(conn, trans)
 		return
+	} else if trans.Status == "move" {
+		trans.Status = "received_files"
+		go sendTransOrPrint(conn, trans)
+
+		for i, v := range trans.Params.Params.InputTables {
+			err := os.Rename(v, trans.Params.OutputTables[i])
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		trans.Status = "finished"
+		sendTrans(conn, trans)
 	} else if trans.Status == "run_job" {
 		trans.Status = "received_files"
 		go sendTransOrPrint(conn, trans)
 
-		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|0777); err != nil {
+		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|os.ModePerm); err != nil {
 			panic(err)
 		}
 		defer os.RemoveAll(trans.Id)
@@ -127,9 +143,9 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		cfg := JobConfig{
 			Jtype:        trans.Params.Params.Type,
 			Name:         trans.Params.Params.Name,
-			Chunks:       trans.Params.Chunks,
 			Object:       trans.Params.Params.Object,
-			OutputTables: trans.Params.Params.OutputTables,
+			Chunks:       trans.Params.Chunks,
+			OutputTables: trans.Params.OutputTables,
 		}
 		buf, err := json.Marshal(cfg)
 		if err != nil {
@@ -152,6 +168,23 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 		fmt.Print(string(stdout.Bytes()))
 		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
+		cmdPrefix := "!hipstmrjob: "
+		for ; ; {
+			str, err := stdout.ReadString('\n')
+			if err != nil && err != io.EOF {
+				panic(err)
+			}
+
+			if strings.HasPrefix(str, cmdPrefix) {
+				str = str[len(cmdPrefix):len(str)-1]
+				fmt.Println("command from job", str)
+			}
+
+			if err == io.EOF {
+				break
+			}
+		}
 
 		trans.Status = "finished"
 		trans.Payload = string(string(stderr.Bytes()))
