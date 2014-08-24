@@ -138,16 +138,23 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 
 		cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob", "-mnt", mnt)
 		cmd.Stdin = bytes.NewReader(buf)
-		out, err := cmd.CombinedOutput()
-		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		fmt.Print(string(out))
-		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
-		if err != nil {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
 			panic(err)
 		}
 
+		fmt.Println("~~~~~~Stderr:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+		fmt.Print(string(stderr.Bytes()))
+		fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+		fmt.Print(string(stdout.Bytes()))
+		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
 		trans.Status = "finished"
+		trans.Payload = string(string(stderr.Bytes()))
 		sendTrans(conn, trans)
 	}
 }

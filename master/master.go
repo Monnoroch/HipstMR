@@ -33,7 +33,7 @@ func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
 	return nil
 }
 
-type Signal struct{}
+type Signal interface{}
 
 type Task struct {
 	trans  helper.Transaction
@@ -250,13 +250,15 @@ func (self *Sheduler) RunTransaction(conn net.Conn, trans *helper.Transaction) b
 	trans.Status = "all files sent"
 	sendTransOrPrint(conn, *trans)
 
+	stderr := ""
 	for i := 0; i < len(slavesTasks); i++ {
 		fmt.Println("Wait for a slave")
-		<-slavesTasks[i].task.signal
+		stderr += (<-slavesTasks[i].task.signal).(string)
 		fmt.Println("Slave finished!")
 	}
 
 	trans.Status = "finished"
+	trans.Payload = stderr
 	sendTransOrPrint(conn, *trans)
 
 	return true
@@ -313,7 +315,7 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 			err := slave.sendNewTransaction(task.trans, func(msg helper.Transaction) {
 				if msg.Status == "received_files" {
 					go func() {
-						task.signal <- Signal{}
+						task.signal <- true
 					}()
 				}
 
@@ -334,7 +336,7 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 				}
 
 				if msg.Status == "finished" || msg.Status == "failed" {
-					task.signal <- Signal{}
+					task.signal <- msg.Payload
 				}
 			})
 

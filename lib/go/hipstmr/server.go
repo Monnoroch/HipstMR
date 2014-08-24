@@ -80,6 +80,12 @@ func (self *Server) Map(params *Params, mapObj Map) error {
 		}
 
 		fmt.Println("Transaction " + t.Id + ": " + t.Status)
+
+		str, ok := t.Payload.(string)
+		if ok {
+			fmt.Println("Stderr:")
+			fmt.Println(str)
+		}
 	}
 	return nil
 }
@@ -92,6 +98,7 @@ type transaction struct {
 	Id     string  `json:"id"`
 	Status string  `json:"status"`
 	Params *Params `json:"params"`
+	Payload interface{} `json:"payload"`
 }
 
 func writeAll(conn net.Conn, buf []byte) error {

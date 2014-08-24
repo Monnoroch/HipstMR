@@ -32,7 +32,7 @@ func Init() {
 		panic(err)
 	}
 
-	fmt.Println("Run job " + cfg.Jtype + ", " + cfg.Name + " on chunks {" + strings.Join(cfg.Chunks, ", ") + "}")
+	fmt.Fprintln(os.Stderr, "Run job " + cfg.Jtype + ", " + cfg.Name + " on chunks {" + strings.Join(cfg.Chunks, ", ") + "}")
 
 	if cfg.Jtype == "map" {
 		runMap(cfg, *mnt)
