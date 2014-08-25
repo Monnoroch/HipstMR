@@ -123,9 +123,6 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 	}
 
 	if trans.Action == "move" {
-		trans.Status = "received_files"
-		sendTransOrPrint(conn, trans)
-
 		fmt.Println(trans.Params.Params.InputTables, trans.Params.OutputTables, trans.Params.Chunks)
 		for _, inTbl := range trans.Params.Params.InputTables {
 			for _, v := range trans.Params.Chunks {
@@ -148,9 +145,6 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		sendTrans(conn, trans)
 		fmt.Println("~~~~~ move", trans)
 	} else if trans.Action == "copy" {
-		trans.Status = "received_files"
-		sendTransOrPrint(conn, trans)
-
 		for _, v := range trans.Params.Chunks {
 			fsdata.Chunks[v].Tags = append(fsdata.Chunks[v].Tags, trans.Params.OutputTables[0])
 		}
@@ -165,9 +159,6 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		sendTrans(conn, trans)
 		fmt.Println("~~~~~ copy", trans)
 	} else if trans.Action == "drop" {
-		trans.Status = "received_files"
-		sendTransOrPrint(conn, trans)
-
 		for _, inTbl := range trans.Params.Params.InputTables {
 			for _, v := range trans.Params.Chunks {
 				tags := fsdata.Chunks[v].Tags

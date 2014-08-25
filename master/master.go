@@ -264,20 +264,20 @@ func getSlavesForTags(tags []string) ([]slaveChunks, error) {
 	return res, nil
 }
 
-func (self *Sheduler) RunTransaction(conn net.Conn, trans helper.Transaction, slavesTasks []slaveTask, log bool) string {
+func (self *Sheduler) RunTransaction(conn net.Conn, trans helper.Transaction, slavesTasks []slaveTask, needFilesSend bool) string {
 	for i := 0; i < len(slavesTasks); i++ {
 		fmt.Println("Sending task to a slave")
 		slavesTasks[i].slave.tasks <- slavesTasks[i].task
 		fmt.Println("Sent task to a slave")
 	}
 
-	for i := 0; i < len(slavesTasks); i++ {
-		fmt.Println("Sending files...")
-		<-slavesTasks[i].task.signal
-		fmt.Println("Files sent!")
-	}
+	if needFilesSend {
+		for i := 0; i < len(slavesTasks); i++ {
+			fmt.Println("Sending files...")
+			<-slavesTasks[i].task.signal
+			fmt.Println("Files sent!")
+		}
 
-	if log {
 		trans.Status = "all files sent"
 		sendTransOrPrint(conn, trans)
 	}
