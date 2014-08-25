@@ -323,16 +323,15 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 		return
 	}
 
+	slavesChunks, err := getSlavesForTags(clientTrans.Params.Params.InputTables)
+	if err != nil || len(slavesChunks) == 0 {
+		clientTrans.Status = "failed"
+		sendTransOrPrint(conn, clientTrans)
+		return
+	}
+
 	if clientTrans.Params.Params.Type == "map" {
 		// job
-
-		slavesChunks, err := getSlavesForTags(clientTrans.Params.Params.InputTables)
-		if err != nil || len(slavesChunks) == 0 {
-			clientTrans.Status = "failed"
-			sendTransOrPrint(conn, clientTrans)
-			return
-		}
-
 		trans := helper.Transaction{
 			Id:     clientTrans.Id,
 			Action: "map",
@@ -409,19 +408,8 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 			fmt.Println("Finished move transaction")
 		}
 
-		clientTrans.Status = "finished"
 		clientTrans.Payload = stderr
-		sendTransOrPrint(conn, clientTrans)
-	}
-
-	if clientTrans.Params.Params.Type == "move" {
-		slavesChunks, err := getSlavesForTags(clientTrans.Params.Params.InputTables)
-		if err != nil || len(slavesChunks) == 0 {
-			clientTrans.Status = "failed"
-			sendTransOrPrint(conn, clientTrans)
-			return
-		}
-
+	} else if clientTrans.Params.Params.Type == "move" {
 		transMove := helper.Transaction{
 			Id:     uuid.New(),
 			Action: "move",
@@ -448,10 +436,36 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 		fmt.Println("Run move transaction")
 		sheduler.RunTransaction(conn, transMove, slavesTasks, false)
 		fmt.Println("Finished move transaction")
+	} else if clientTrans.Params.Params.Type == "copy" {
+		transCopy := helper.Transaction{
+			Id:     uuid.New(),
+			Action: "copy",
+			Status: "started",
+			Params: helper.Params{},
+		}
 
-		clientTrans.Status = "finished"
-		sendTransOrPrint(conn, clientTrans)
+		slavesTasks := make([]slaveTask, len(slavesChunks))
+		for sn := 0; sn < len(slavesChunks); sn++ {
+			taskId := uuid.New()
+			tr := transCopy
+			tr.Params.Chunks = slavesChunks[sn].chunks
+			tr.Params.OutputTables = []string{clientTrans.Params.Params.OutputTables[0]}
+			slavesTasks[sn] = slaveTask{
+				task: Task{
+					trans:  tr,
+					signal: make(chan Signal),
+					Id:     taskId,
+				},
+				slave: slavesChunks[sn].slave,
+			}
+		}
+
+		fmt.Println("Run copy transaction")
+		sheduler.RunTransaction(conn, transCopy, slavesTasks, false)
+		fmt.Println("Finished copy transaction")
 	}
+	clientTrans.Status = "finished"
+	sendTransOrPrint(conn, clientTrans)
 }
 
 func onNewSlave(conn net.Conn, decoder *json.Decoder) error {

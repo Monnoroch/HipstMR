@@ -139,6 +139,23 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		trans.Status = "finished"
 		sendTrans(conn, trans)
 		fmt.Println("~~~~~ move_chunks", trans)
+	} else if trans.Action == "copy" {
+		trans.Status = "received_files"
+		sendTransOrPrint(conn, trans)
+
+		for _, v := range trans.Params.Chunks {
+			fsdata.Chunks[v].Tags = append(fsdata.Chunks[v].Tags, trans.Params.OutputTables[0])
+		}
+
+		if err := fsdata.Write("1.fsdat"); err != nil {
+			trans.Status = "failed"
+			sendTrans(conn, trans)
+			return
+		}
+
+		trans.Status = "finished"
+		sendTrans(conn, trans)
+		fmt.Println("~~~~~ move_chunks", trans)
 	} else if trans.Action == "map" {
 		trans.Status = "received_files"
 		sendTransOrPrint(conn, trans)

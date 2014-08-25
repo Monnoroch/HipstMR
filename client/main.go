@@ -37,4 +37,5 @@ func main() {
 	server.Map(hipstmr.NewParamsIO("tbl2", "output").AddFile("f.txt").AddInput("tbl1"), &MyMap{Val: "hello!"})
 	server.Map(hipstmr.NewParamsIO("output", "output1").AddFile("f.txt"), &MyMap{Val: "hello 2!"})
 	server.MoveIO("output1", "output2")
+	server.CopyIO("output2", "output3")
 }

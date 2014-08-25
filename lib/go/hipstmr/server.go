@@ -88,6 +88,24 @@ func (self *Server) Move(params *Params) error {
 	return self.run(&trans)
 }
 
+func (self *Server) MoveIO(from, to string) error {
+	return self.Move(NewParamsIO(from, to))
+}
+
+func (self *Server) Copy(params *Params) error {
+	params.Type = "copy"
+
+	var trans transaction
+	trans.Params = params
+	trans.Status = "starting"
+
+	return self.run(&trans)
+}
+
+func (self *Server) CopyIO(from, to string) error {
+	return self.Copy(NewParamsIO(from, to))
+}
+
 func (self *Server) run(trans *transaction) error {
 	res, err := json.Marshal(trans)
 	if err != nil {
@@ -127,8 +145,4 @@ func (self *Server) run(trans *transaction) error {
 		}
 	}
 	return nil
-}
-
-func (self *Server) MoveIO(from, to string) error {
-	return self.Move(NewParamsIO(from, to))
 }
