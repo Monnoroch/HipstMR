@@ -106,6 +106,20 @@ func (self *Server) CopyIO(from, to string) error {
 	return self.Copy(NewParamsIO(from, to))
 }
 
+func (self *Server) Drop(params *Params) error {
+	params.Type = "drop"
+
+	var trans transaction
+	trans.Params = params
+	trans.Status = "starting"
+
+	return self.run(&trans)
+}
+
+func (self *Server) DropTbl(tbl string) error {
+	return self.Drop(NewParams().AddInput(tbl))
+}
+
 func (self *Server) run(trans *transaction) error {
 	res, err := json.Marshal(trans)
 	if err != nil {

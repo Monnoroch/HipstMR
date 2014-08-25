@@ -126,8 +126,16 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		trans.Status = "received_files"
 		sendTransOrPrint(conn, trans)
 
-		for _, v := range trans.Params.Chunks {
-			fsdata.Chunks[v].Tags = []string{trans.Params.OutputTables[0]}
+		fmt.Println(trans.Params.Params.InputTables, trans.Params.OutputTables, trans.Params.Chunks)
+		for _, inTbl := range trans.Params.Params.InputTables {
+			for _, v := range trans.Params.Chunks {
+				tags := fsdata.Chunks[v].Tags
+				for i, tag := range tags {
+					if tag == inTbl {
+						tags[i] = trans.Params.OutputTables[0]
+					}
+				}
+			}
 		}
 
 		if err := fsdata.Write("1.fsdat"); err != nil {
@@ -138,7 +146,7 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 
 		trans.Status = "finished"
 		sendTrans(conn, trans)
-		fmt.Println("~~~~~ move_chunks", trans)
+		fmt.Println("~~~~~ move", trans)
 	} else if trans.Action == "copy" {
 		trans.Status = "received_files"
 		sendTransOrPrint(conn, trans)
@@ -155,7 +163,52 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 
 		trans.Status = "finished"
 		sendTrans(conn, trans)
-		fmt.Println("~~~~~ move_chunks", trans)
+		fmt.Println("~~~~~ copy", trans)
+	} else if trans.Action == "drop" {
+		trans.Status = "received_files"
+		sendTransOrPrint(conn, trans)
+
+		for _, inTbl := range trans.Params.Params.InputTables {
+			for _, v := range trans.Params.Chunks {
+				tags := fsdata.Chunks[v].Tags
+				ids := []int{}
+				for i, tag := range tags {
+					if tag == inTbl {
+						ids = append(ids, i)
+					}
+				}
+				fmt.Println(inTbl, ids)
+				if len(ids) == len(tags) {
+					delete(fsdata.Chunks, v)
+					os.Remove(path.Join(mnt, v+".chunk"))
+					continue
+				}
+
+				fmt.Println(tags)
+				for _, i := range ids {
+					tags = append(tags[:i], tags[i+1:]...)
+					fmt.Println(tags)
+				}
+
+				if len(tags) == 0 {
+					delete(fsdata.Chunks, v)
+					os.Remove(path.Join(mnt, v+".chunk"))
+					continue
+				}
+
+				fsdata.Chunks[v].Tags = tags
+			}
+		}
+
+		if err := fsdata.Write("1.fsdat"); err != nil {
+			trans.Status = "failed"
+			sendTrans(conn, trans)
+			return
+		}
+
+		trans.Status = "finished"
+		sendTrans(conn, trans)
+		fmt.Println("~~~~~ drop", trans)
 	} else if trans.Action == "map" {
 		trans.Status = "received_files"
 		sendTransOrPrint(conn, trans)

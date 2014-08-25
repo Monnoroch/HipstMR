@@ -1,22 +1,32 @@
 {
-	"e31b46fe-9444-4a94-a39b-9362bff76775": {
-		"tags": ["tbl2"],
-		"num": 4
-	},
-	"8eec593c-0a54-4c31-86b8-5c404b9093b3": {
-		"tags": ["tbl2"],
-		"num": 5
-	},
 	"18086523-b35a-4c8a-8b82-aa09db1124c7": {
-		"tags": ["tbl3"],
-		"num": 1
-	},
-	"c8579a3e-b359-449d-9894-c3ee0c0e4086": {
-		"tags": ["test/tbl1"],
-		"num": 3
+		"num": 1,
+		"tags": [
+			"tbl3"
+		]
 	},
 	"1ab804d2-fe48-45b3-8df6-a93b67329881": {
-		"tags": ["test/tbl1"],
-		"num": 4
+		"num": 4,
+		"tags": [
+			"test/tbl1"
+		]
+	},
+	"8eec593c-0a54-4c31-86b8-5c404b9093b3": {
+		"num": 5,
+		"tags": [
+			"tbl2"
+		]
+	},
+	"c8579a3e-b359-449d-9894-c3ee0c0e4086": {
+		"num": 3,
+		"tags": [
+			"test/tbl1"
+		]
+	},
+	"e31b46fe-9444-4a94-a39b-9362bff76775": {
+		"num": 4,
+		"tags": [
+			"tbl2"
+		]
 	}
 }

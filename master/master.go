@@ -384,7 +384,11 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 				Id:     uuid.New(),
 				Action: "move",
 				Status: "started",
-				Params: helper.Params{},
+				Params: helper.Params{
+					Params: &hipstmr.Params{
+						InputTables: tmpTbls,
+					},
+				},
 			}
 
 			slavesTasks := make([]slaveTask, len(slavesChunks))
@@ -414,7 +418,11 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 			Id:     uuid.New(),
 			Action: "move",
 			Status: "started",
-			Params: helper.Params{},
+			Params: helper.Params{
+				Params: &hipstmr.Params{
+					InputTables: clientTrans.Params.Params.InputTables,
+				},
+			},
 		}
 
 		slavesTasks := make([]slaveTask, len(slavesChunks))
@@ -441,7 +449,11 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 			Id:     uuid.New(),
 			Action: "copy",
 			Status: "started",
-			Params: helper.Params{},
+			Params: helper.Params{
+				Params: &hipstmr.Params{
+					InputTables: clientTrans.Params.Params.InputTables,
+				},
+			},
 		}
 
 		slavesTasks := make([]slaveTask, len(slavesChunks))
@@ -463,7 +475,38 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 		fmt.Println("Run copy transaction")
 		sheduler.RunTransaction(conn, transCopy, slavesTasks, false)
 		fmt.Println("Finished copy transaction")
+	} else if clientTrans.Params.Params.Type == "drop" {
+		transCopy := helper.Transaction{
+			Id:     uuid.New(),
+			Action: "drop",
+			Status: "started",
+			Params: helper.Params{
+				Params: &hipstmr.Params{
+					InputTables: clientTrans.Params.Params.InputTables,
+				},
+			},
+		}
+
+		slavesTasks := make([]slaveTask, len(slavesChunks))
+		for sn := 0; sn < len(slavesChunks); sn++ {
+			taskId := uuid.New()
+			tr := transCopy
+			tr.Params.Chunks = slavesChunks[sn].chunks
+			slavesTasks[sn] = slaveTask{
+				task: Task{
+					trans:  tr,
+					signal: make(chan Signal),
+					Id:     taskId,
+				},
+				slave: slavesChunks[sn].slave,
+			}
+		}
+
+		fmt.Println("Run drop transaction")
+		sheduler.RunTransaction(conn, transCopy, slavesTasks, false)
+		fmt.Println("Finished drop transaction")
 	}
+
 	clientTrans.Status = "finished"
 	sendTransOrPrint(conn, clientTrans)
 }
