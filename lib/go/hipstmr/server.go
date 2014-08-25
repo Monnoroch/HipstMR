@@ -50,7 +50,46 @@ func (self *Server) Map(params *Params, mapObj Map) error {
 	trans.Params = params
 	trans.Status = "starting"
 
-	res, err := json.Marshal(&trans)
+	return self.run(&trans)
+}
+
+func (self *Server) MapIO(from, to string, mapObj Map) error {
+	return self.Map(NewParamsIO(from, to), mapObj)
+}
+
+type transaction struct {
+	Id      string      `json:"id"`
+	Status  string      `json:"status"`
+	Params  *Params     `json:"params"`
+	Payload interface{} `json:"payload"`
+}
+
+func writeAll(conn net.Conn, buf []byte) error {
+	total := len(buf)
+	sum := 0
+	for sum != total {
+		n, err := conn.Write(buf)
+		if err != nil {
+			return err
+		}
+		sum += n
+		buf = buf[:n]
+	}
+	return nil
+}
+
+func (self *Server) Move(params *Params) error {
+	params.Type = "move"
+
+	var trans transaction
+	trans.Params = params
+	trans.Status = "starting"
+
+	return self.run(&trans)
+}
+
+func (self *Server) run(trans *transaction) error {
+	res, err := json.Marshal(trans)
 	if err != nil {
 		return err
 	}
@@ -90,27 +129,6 @@ func (self *Server) Map(params *Params, mapObj Map) error {
 	return nil
 }
 
-func (self *Server) MapIO(from, to string, mapObj Map) error {
-	return self.Map(NewParamsIO(from, to), mapObj)
-}
-
-type transaction struct {
-	Id     string  `json:"id"`
-	Status string  `json:"status"`
-	Params *Params `json:"params"`
-	Payload interface{} `json:"payload"`
-}
-
-func writeAll(conn net.Conn, buf []byte) error {
-	total := len(buf)
-	sum := 0
-	for sum != total {
-		n, err := conn.Write(buf)
-		if err != nil {
-			return err
-		}
-		sum += n
-		buf = buf[:n]
-	}
-	return nil
+func (self *Server) MoveIO(from, to string) error {
+	return self.Move(NewParamsIO(from, to))
 }

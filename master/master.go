@@ -5,13 +5,14 @@ import (
 	"HipstMR/lib/go/hipstmr"
 	"bufio"
 	"code.google.com/p/go-uuid/uuid"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"path"
 	"net"
+	"path"
 )
 
 func sendTrans(conn net.Conn, trans helper.Transaction) error {
@@ -34,12 +35,42 @@ func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
 	return nil
 }
 
+type TagData map[string][]string
+
+type FsData struct {
+	slaves map[string]helper.FsData
+	index  map[string]TagData
+}
+
+func (self *FsData) rebuild() {
+	self.index = make(map[string]TagData)
+	for slave, fsData := range self.slaves {
+		for chunkId, chunkData := range fsData.Chunks {
+			for _, tag := range chunkData.Tags {
+				tagData, ok := self.index[tag]
+				if !ok {
+					self.index[tag] = TagData{slave: []string{chunkId}}
+				} else {
+					tagData[slave] = append(tagData[slave], chunkId)
+				}
+			}
+		}
+	}
+}
+
+func (self *FsData) update(payload helper.FsData, id string) {
+	self.slaves[id] = payload
+	self.rebuild()
+}
+
+var FS *FsData
+
 type Signal interface{}
 
 type Task struct {
 	trans  helper.Transaction
 	signal chan Signal
-	Id string
+	Id     string
 }
 
 type Slave struct {
@@ -103,38 +134,25 @@ func (self *Slave) sendNewOnceTransaction(trans helper.Transaction, callback fun
 	return nil
 }
 
-func updateFS(payload interface{}, id string) {
-	// clear slave
-	for k, v := range FS {
-		delete(v, id)
-		if len(v) == 0 {
-			delete(FS, k)
-		}
-	}
-
-	// reload info from it
-	chs := payload.(map[string]interface{})
-	for tbl, chunks := range chs {
-		fsk := FS[tbl]
-		if fsk == nil {
-			fsk = make(map[string][]string)
-			FS[tbl] = fsk
-		}
-		fsk[id] = nil
-
-		vs := chunks.([]interface{})
-		for _, vv := range vs {
-			fsk[id] = append(fsk[id], vv.(string))
-		}
-	}
-}
-
 func (self *Slave) askForFs() error {
 	signal := make(chan struct{})
 	err := self.sendNewOnceTransaction(helper.NewTransaction("get_chunks"), func(trans helper.Transaction) {
 		if trans.Status == "finished" {
-			updateFS(trans.Payload, self.id)
-			fmt.Println("Chunks:", FS)
+			str := trans.Payload.(string)
+			bs, err := base64.StdEncoding.DecodeString(str)
+			if err != nil {
+				fmt.Println("Error askForFS:", trans, err)
+				return
+			}
+
+			var fsdata helper.FsData
+			if err := json.Unmarshal(bs, &fsdata); err != nil {
+				fmt.Println("Error askForFS:", trans, err)
+				return
+			}
+
+			FS.update(fsdata, self.id)
+			fmt.Println("Chunks:", FS.index)
 		} else {
 			fmt.Println("Error askForFS:", trans)
 		}
@@ -150,8 +168,21 @@ func (self *Slave) askForFs() error {
 func (self *Slave) askForFsAsync() error {
 	err := self.sendNewOnceTransaction(helper.NewTransaction("get_chunks"), func(trans helper.Transaction) {
 		if trans.Status == "finished" {
-			updateFS(trans.Payload, self.id)
-			fmt.Println("Chunks:", FS)
+			str := trans.Payload.(string)
+			bs, err := base64.StdEncoding.DecodeString(str)
+			if err != nil {
+				fmt.Println("Error askForFS:", trans, err)
+				return
+			}
+
+			var fsdata helper.FsData
+			if err := json.Unmarshal(bs, &fsdata); err != nil {
+				fmt.Println("Error askForFS:", trans, err)
+				return
+			}
+
+			FS.update(fsdata, self.id)
+			fmt.Println("Chunks:", FS.index)
 		} else {
 			fmt.Println("Error askForFS:", trans)
 		}
@@ -190,8 +221,6 @@ type slaveTask struct {
 	slave *Slave
 }
 
-var FS map[string]map[string][]string
-
 type slaveChunks struct {
 	slave  *Slave
 	chunks []string
@@ -200,7 +229,7 @@ type slaveChunks struct {
 func getSlavesForTags(tags []string) ([]slaveChunks, error) {
 	res := []slaveChunks{}
 	for _, v := range tags {
-		fse, ok := FS[v]
+		fse, ok := FS.index[v]
 		if !ok {
 			return nil, errors.New("Unknown tag " + v)
 		}
@@ -228,13 +257,12 @@ func getSlavesForTags(tags []string) ([]slaveChunks, error) {
 			}
 
 			for _, vvv := range vv {
-				res[found].chunks = append(res[found].chunks, v+".chunk."+vvv)
+				res[found].chunks = append(res[found].chunks, vvv)
 			}
 		}
 	}
 	return res, nil
 }
-
 
 func (self *Sheduler) RunTransaction(conn net.Conn, trans helper.Transaction, slavesTasks []slaveTask, log bool) string {
 	for i := 0; i < len(slavesTasks); i++ {
@@ -306,7 +334,7 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 		}
 
 		trans := helper.Transaction{
-			Id: clientTrans.Id,
+			Id:     clientTrans.Id,
 			Action: "map",
 			Status: "started",
 			Params: helper.Params{
@@ -326,9 +354,9 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 
 			slavesTasks[i] = slaveTask{
 				task: Task{
-					trans: tr,
+					trans:  tr,
 					signal: make(chan Signal),
-					Id: taskId,
+					Id:     taskId,
 				},
 				slave: slavesChunks[i].slave,
 			}
@@ -354,28 +382,23 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 			}
 
 			transMove := helper.Transaction{
-				Id: uuid.New(),
-				Action: "move_chunks",
+				Id:     uuid.New(),
+				Action: "move",
 				Status: "started",
 				Params: helper.Params{},
 			}
 
 			slavesTasks := make([]slaveTask, len(slavesChunks))
-			chn := 0
 			for sn := 0; sn < len(slavesChunks); sn++ {
 				taskId := uuid.New()
 				tr := transMove
 				tr.Params.Chunks = slavesChunks[sn].chunks
-				tr.Params.OutputTables = make([]string, len(tr.Params.Chunks))
-				for k, _ := range tr.Params.Chunks {
-					tr.Params.OutputTables[k] = fmt.Sprintf("%s.chunk.%d", tbl, chn)
-					chn++
-				}
+				tr.Params.OutputTables = []string{tbl}
 				slavesTasks[sn] = slaveTask{
 					task: Task{
 						trans:  tr,
 						signal: make(chan Signal),
-						Id: taskId,
+						Id:     taskId,
 					},
 					slave: slavesChunks[sn].slave,
 				}
@@ -388,6 +411,45 @@ func onNewClient(conn net.Conn, clientTrans helper.Transaction) {
 
 		clientTrans.Status = "finished"
 		clientTrans.Payload = stderr
+		sendTransOrPrint(conn, clientTrans)
+	}
+
+	if clientTrans.Params.Params.Type == "move" {
+		slavesChunks, err := getSlavesForTags(clientTrans.Params.Params.InputTables)
+		if err != nil || len(slavesChunks) == 0 {
+			clientTrans.Status = "failed"
+			sendTransOrPrint(conn, clientTrans)
+			return
+		}
+
+		transMove := helper.Transaction{
+			Id:     uuid.New(),
+			Action: "move",
+			Status: "started",
+			Params: helper.Params{},
+		}
+
+		slavesTasks := make([]slaveTask, len(slavesChunks))
+		for sn := 0; sn < len(slavesChunks); sn++ {
+			taskId := uuid.New()
+			tr := transMove
+			tr.Params.Chunks = slavesChunks[sn].chunks
+			tr.Params.OutputTables = []string{clientTrans.Params.Params.OutputTables[0]}
+			slavesTasks[sn] = slaveTask{
+				task: Task{
+					trans:  tr,
+					signal: make(chan Signal),
+					Id:     taskId,
+				},
+				slave: slavesChunks[sn].slave,
+			}
+		}
+
+		fmt.Println("Run move transaction")
+		sheduler.RunTransaction(conn, transMove, slavesTasks, false)
+		fmt.Println("Finished move transaction")
+
+		clientTrans.Status = "finished"
 		sendTransOrPrint(conn, clientTrans)
 	}
 }
@@ -443,16 +505,14 @@ func onNewSlave(conn net.Conn, decoder *json.Decoder) error {
 		fmt.Println("Slave died!")
 	}()
 
-	err = slave.Run()
-	if err != nil {
+	if err := slave.Run(); err != nil {
 		panic(err)
 	}
 
 	sheduler.RemoveSlave(slave)
 
-	for _, v := range FS {
-		delete(v, slave.id)
-	}
+	delete(FS.slaves, slave.id)
+	FS.rebuild()
 
 	fmt.Println("close slave", len(sheduler.slaves))
 	return nil
@@ -463,7 +523,7 @@ type handleClientTransaction struct {
 	Status  string          `json"status"`
 	Params  json.RawMessage `json"params"`
 	Payload json.RawMessage `json"payload"`
-	Action      string          `json"action"`
+	Action  string          `json"action"`
 }
 
 func handle(conn net.Conn) {
@@ -518,7 +578,9 @@ func main() {
 		slaves: make([]*Slave, 0),
 	}
 
-	FS = make(map[string]map[string][]string)
+	FS = &FsData{
+		slaves: make(map[string]helper.FsData),
+	}
 
 	sock, err := net.Listen("tcp", *address)
 	if err != nil {

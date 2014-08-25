@@ -1,21 +1,22 @@
 package hipstmr
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"bytes"
 	"os"
 	"path"
 )
 
 type JobOutput struct {
-	tables      []string
-	buffers []*bytes.Buffer
-	counters []uint
-	current     int
-	mnt string
+	tables       []string
+	buffers      []*bytes.Buffer
+	counters     []uint
+	current      int
+	mnt          string
+	dir          string
 	maxChunkSize int
 }
 
@@ -36,11 +37,11 @@ func (self *JobOutput) writeChunk(cur int) error {
 		return nil
 	}
 
-	name := path.Join(self.mnt, fmt.Sprintf("%s.chunk.%d", self.tables[cur], self.counters[cur]))
+	name := path.Join(self.mnt, self.dir, self.tables[cur], fmt.Sprintf("%d.chunk", self.counters[cur]))
 	base := path.Dir(name)
 	if err := os.MkdirAll(base, os.ModeDir|os.ModeTemporary|os.ModePerm); err != nil {
 		return err
-    }
+	}
 
 	f, err := os.Create(name)
 	if err != nil {
@@ -76,7 +77,7 @@ func (self *JobOutput) Add(key, subKey, value []byte) error {
 	cur := self.current
 	buf := self.buffers[cur]
 	size := buf.Len()
-	newSize := size + 2 * 3 + len(key) + len(subKey) + len(value)
+	newSize := size + 2*3 + len(key) + len(subKey) + len(value)
 	if newSize > self.maxChunkSize {
 		if err := self.writeChunk(cur); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -150,19 +151,20 @@ func writeValue(writer io.Writer, value []byte) error {
 	return nil
 }
 
-func newOutput(tables []string, mnt string) (*JobOutput, error) {
+func newOutput(cfg jobConfig, mnt string) (*JobOutput, error) {
 	// writers := make([]io.WriteCloser, len(tables))
-	buffers := make([]*bytes.Buffer, len(tables))
-	for i, _ := range tables {
+	buffers := make([]*bytes.Buffer, len(cfg.OutputTables))
+	for i, _ := range cfg.OutputTables {
 		buffers[i] = &bytes.Buffer{}
 	}
 
 	return &JobOutput{
-		mnt: mnt,
-		tables:      tables,
-		current:     0,
+		mnt:          mnt,
+		dir:          cfg.Dir,
+		tables:       cfg.OutputTables,
+		current:      0,
 		maxChunkSize: 40,
-		buffers:  buffers,
-		counters: make([]uint, len(tables)), // assume default zero
+		buffers:      buffers,
+		counters:     make([]uint, len(cfg.OutputTables)), // assume default zero
 	}, nil
 }

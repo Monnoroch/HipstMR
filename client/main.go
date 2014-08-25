@@ -1,10 +1,9 @@
 package main
 
 import (
-	"flag"
 	"HipstMR/lib/go/hipstmr"
+	"flag"
 )
-
 
 type MyMap struct {
 	Val string `json:"val"`
@@ -22,7 +21,6 @@ func (self *MyMap) Do(key, subKey, value []byte, output *hipstmr.JobOutput) {
 
 func (self *MyMap) Finish() {}
 
-
 func main() {
 	hipstmr.Register(&MyMap{})
 	hipstmr.Init()
@@ -38,4 +36,5 @@ func main() {
 	server := hipstmr.NewServer(*master)
 	server.Map(hipstmr.NewParamsIO("tbl2", "output").AddFile("f.txt").AddInput("tbl1"), &MyMap{Val: "hello!"})
 	server.Map(hipstmr.NewParamsIO("output", "output1").AddFile("f.txt"), &MyMap{Val: "hello 2!"})
+	server.MoveIO("output1", "output2")
 }

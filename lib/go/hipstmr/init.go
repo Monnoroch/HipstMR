@@ -33,7 +33,7 @@ func Init() {
 		panic(err)
 	}
 
-	fmt.Fprintln(os.Stderr, "Run job " + cfg.Jtype + ", " + cfg.Name + " on chunks {" + strings.Join(cfg.Chunks, ", ") + "}")
+	fmt.Fprintln(os.Stderr, "Run job "+cfg.Jtype+", "+cfg.Name+" on chunks {"+strings.Join(cfg.Chunks, ", ")+"}")
 
 	if cfg.Jtype == "map" {
 		runMap(cfg, *mnt)
@@ -43,6 +43,7 @@ func Init() {
 type jobConfig struct {
 	Jtype        string   `json:"type"`
 	Name         string   `json:"name"`
+	Dir          string   `json:"dir"`
 	Chunks       []string `json:"chunks"`
 	OutputTables []string `json:"output_tables"`
 	Object       []byte   `json:"object"`
@@ -73,7 +74,7 @@ func runMap(cfg jobConfig, mnt string) {
 	var baseReaders []io.ReadCloser
 	var readers []io.Reader
 	for _, c := range cfg.Chunks {
-		f, err := os.Open(path.Join(mnt, c))
+		f, err := os.Open(path.Join(mnt, c+".chunk"))
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -88,7 +89,7 @@ func runMap(cfg jobConfig, mnt string) {
 		}
 	}()
 
-	output, err := newOutput(cfg.OutputTables, mnt)
+	output, err := newOutput(cfg, mnt)
 	if err != nil {
 		fmt.Println(err)
 	}
