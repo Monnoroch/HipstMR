@@ -31,9 +31,10 @@ func (self *Transaction) Send(conn net.Conn) error {
 	return nil
 }
 
-func NewTransaction(status string) Transaction {
+func NewTransaction(action string) Transaction {
 	return Transaction{
 		Id:     uuid.New(),
-		Status: status,
+		Status: "started",
+		Action: action,
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -62,6 +63,8 @@ func parseConfig() (jobConfig, error) {
 }
 
 func runMap(cfg jobConfig, mnt string) {
+	fmt.Println("runMap", cfg)
+
 	job, err := createMap(cfg)
 	if err != nil {
 		panic(err)
@@ -70,7 +73,7 @@ func runMap(cfg jobConfig, mnt string) {
 	var baseReaders []io.ReadCloser
 	var readers []io.Reader
 	for _, c := range cfg.Chunks {
-		f, err := os.Open(mnt + c)
+		f, err := os.Open(path.Join(mnt, c))
 		if err != nil {
 			fmt.Println(err)
 		}

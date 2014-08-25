@@ -44,7 +44,7 @@ func traverseDirectoryRec(name string, isRoot bool) (map[string][]string, error)
 				if !isRoot {
 					res[k] = v
 				} else {
-					res[k[len(name):]] = v
+					res[k[len(name)+1:]] = v
 				}
 			}
 		} else {
@@ -98,10 +98,7 @@ func dumpTransaction(trans helper.Transaction) string {
 }
 
 func onTransaction(trans helper.Transaction, conn net.Conn) {
-	fmt.Println(trans)
-	return
-
-	if trans.Status == "get_chunks" {
+	if trans.Action == "get_chunks" {
 		dir, err := traverseDirectory(mnt)
 		if err != nil {
 			trans.Status = "failed"
@@ -110,15 +107,15 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 		}
 
 		trans.Payload = dir
-		trans.Status = "chunks"
+		trans.Status = "finished"
 		sendTrans(conn, trans)
-		return
-	} else if trans.Status == "move" {
+		fmt.Println("~~~~~ get_chunks", trans)
+	} else if trans.Action == "move_chunks" {
 		trans.Status = "received_files"
-		go sendTransOrPrint(conn, trans)
+		sendTransOrPrint(conn, trans)
 
-		for i, v := range trans.Params.Params.InputTables {
-			err := os.Rename(v, trans.Params.OutputTables[i])
+		for i, v := range trans.Params.Chunks {
+			err := os.Rename(path.Join(mnt, v), path.Join(mnt, trans.Params.OutputTables[i]))
 			if err != nil {
 				panic(err)
 			}
@@ -126,9 +123,10 @@ func onTransaction(trans helper.Transaction, conn net.Conn) {
 
 		trans.Status = "finished"
 		sendTrans(conn, trans)
-	} else if trans.Status == "run_job" {
+		fmt.Println("~~~~~ move_chunks", trans)
+	} else if trans.Action == "map" {
 		trans.Status = "received_files"
-		go sendTransOrPrint(conn, trans)
+		sendTransOrPrint(conn, trans)
 
 		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|os.ModePerm); err != nil {
 			panic(err)
@@ -231,12 +229,10 @@ func main() {
 
 	mnt = *mntv
 
-	if mnt[len(mnt)-1] != '/' {
-		mnt += "/"
-	}
+	mnt = path.Clean(mnt)
 
 	var trans helper.Transaction
-	trans.Status = "slave_waiting"
+	trans.Action = "connect_slave"
 
 	res, err := json.Marshal(&trans)
 	if err != nil {
