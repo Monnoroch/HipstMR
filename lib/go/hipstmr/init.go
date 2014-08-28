@@ -13,7 +13,7 @@ import (
 )
 
 func Init() {
-	if os.Args[1] != "-hipstmrjob" {
+	if len(os.Args) != 2 || os.Args[1] != "-hipstmrjob" {
 		return
 	}
 	defer os.Exit(0)
