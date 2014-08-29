@@ -2,16 +2,47 @@ package helper
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"os"
 	"path"
 	"strings"
+	// "fmt"
 )
 
+type TagNumPair struct {
+	Tag string `json:"tag"`
+	Num uint64  `json:"num"`
+}
+
+type TagsSet map[string]TagNumPair
+
+func (self TagsSet) MarshalJSON() ([]byte, error) {
+	arr := make([]TagNumPair, len(self))
+	i := 0
+	for _, v := range self {
+		arr[i] = v
+		i += 1
+	}
+	return json.Marshal(arr)
+}
+
+func (self *TagsSet) UnmarshalJSON(data []byte) error {
+	*self = make(TagsSet)
+	arr := make([]TagNumPair, 0)
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+
+	for _, v := range arr {
+		(*self)[v.Tag] = v
+	}
+	return nil
+}
+
 type ChunkData struct {
-	Num  uint64   `json:"num"`
-	Size uint64 `json:"size"`
-	Tags []string `json:"tags"`
+	Size uint64  `json:"size"`
+	Tags TagsSet `json:"tags"`
 }
 
 type FsData struct {
@@ -27,7 +58,7 @@ func (self *FsData) Read(name string) error {
 		return err
 	}
 
-	allChunks := make(map[string]*ChunkData)
+	self.Chunks = make(map[string]*ChunkData)
 	for _, v := range dir {
 		if v.IsDir() {
 			continue
@@ -49,15 +80,22 @@ func (self *FsData) Read(name string) error {
 		}
 
 		for k, v := range chunks {
-			data, ok := allChunks[k]
+			_, ok := self.Chunks[k]
 			if !ok {
-				allChunks[k] = v
+				self.Chunks[k] = v
 			} else {
-				data.Tags = append(data.Tags, v.Tags...)
+				data := self.Chunks[k]
+				if data.Size != v.Size {
+					return errors.New("Sizes don't match.")
+				}
+
+				for tag, pair := range v.Tags {
+					data.Tags[tag] = pair
+				}
+				self.Chunks[k] = data
 			}
 		}
 	}
-	self.Chunks = allChunks
 	return nil
 }
 

@@ -20,6 +20,7 @@ import (
 )
 
 type JobConfig struct {
+	Mnt  string `json:"mnt"`
 	Jtype        string   `json:"type"`
 	Name         string   `json:"name"`
 	Dir          string   `json:"dir"`
@@ -28,51 +29,165 @@ type JobConfig struct {
 	Object       []byte   `json:"object"`
 }
 
-func traverseDirectoryRec(name string, isRoot bool) (map[string][]string, error) {
-	p := path.Clean(name)
-	dir, err := ioutil.ReadDir(p)
-	if err != nil {
-		return nil, err
+type FsData struct {
+	mnt  string
+	dir  string
+	data helper.FsData
+}
+
+func (self *FsData) Read() error {
+	return self.data.Read(self.dir)
+}
+
+func (self *FsData) ClearFs() {
+	self.data.ClearFs(self.mnt)
+}
+
+func (self *FsData) GetFs(trans *helper.Transaction) error {
+	if err := self.Read(); err != nil {
+		return err
 	}
 
-	res := map[string][]string{}
-	for _, v := range dir {
-		if v.IsDir() {
-			r, err := traverseDirectoryRec(path.Join(name, v.Name()), false)
-			if err != nil {
-				return nil, err
+	bs, err := json.Marshal(&self.data)
+	if err != nil {
+		return err
+	}
+
+	trans.Payload = bs
+	return nil
+}
+
+func (self *FsData) Move(inputs []string, output string) error {
+	if err := self.Del([]string{output}); err != nil {
+		return err
+	}
+
+	var num uint64 = 0
+	for _, v := range self.data.Chunks {
+		for _, in := range inputs {
+			_, ok := v.Tags[in]
+			if !ok {
+				continue
 			}
 
-			for k, v := range r {
-				if !isRoot {
-					res[k] = v
-				} else {
-					res[k[len(name)+1:]] = v
-				}
+			delete(v.Tags, in)
+			v.Tags[output] = helper.TagNumPair{
+				Tag: output,
+				Num: num,
 			}
-		} else {
-			nm := v.Name()
-			i := strings.Index(nm, ".chunk.")
-			if i == -1 {
-				return nil, errors.New("Not a chunk: " + path.Join(name, nm))
-			}
-
-			tag := nm[:i]
-			if !isRoot {
-				tag = path.Join(name, tag)
-			}
-			id := nm[i+len(".chunk."):]
-			res[tag] = append(res[tag], id)
+			num++
 		}
 	}
-	return res, nil
+	return nil
 }
 
-func traverseDirectory(name string) (map[string][]string, error) {
-	return traverseDirectoryRec(name, true)
+func (self *FsData) MoveChunks(chunks []string, nums []uint64, inputs []string, output string) error {
+	if err := self.Del([]string{output}); err != nil {
+		return err
+	}
+
+	for i, chunk := range chunks {
+		ch, ok := self.data.Chunks[chunk]
+		if !ok {
+			return errors.New("WAT?!")
+		}
+
+		for _, inp := range inputs {
+			for tag, _ := range ch.Tags {
+				if tag == inp {
+					delete(ch.Tags, tag)
+				}
+			}
+		}
+
+		ch.Tags[output] = helper.TagNumPair{
+			Tag: output,
+			Num: nums[i],
+		}
+	}
+	return nil
 }
 
-func dumpTransaction(trans helper.Transaction) string {
+func (self *FsData) Copy(inputs []string, output string) error {
+	if err := self.Del([]string{output}); err != nil {
+		return err
+	}
+
+	var num uint64 = 0
+	for _, v := range self.data.Chunks {
+		for _, in := range inputs {
+			_, ok := v.Tags[in]
+			if !ok {
+				continue
+			}
+
+			v.Tags[output] = helper.TagNumPair{
+				Tag: output,
+				Num: num,
+			}
+			num++
+		}
+	}
+	return nil
+}
+
+func (self *FsData) Del(inputs []string) error {
+	for k, v := range self.data.Chunks {
+		for _, in := range inputs {
+			_, ok := v.Tags[in]
+			if ok {
+				delete(v.Tags, in)
+			}
+		}
+		if len(v.Tags) == 0 {
+			delete(self.data.Chunks, k)
+			if err := os.Remove(self.GetChunkFileName(k)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (self *FsData) AddChunk(id, tag string, num uint64) {
+	self.data.Chunks[id] = &helper.ChunkData{
+		Tags: map[string]helper.TagNumPair{tag: helper.TagNumPair{
+			Tag: tag,
+			Num: num,
+		}},
+	}
+}
+
+func (self *FsData) GetChunkFileName(chunk string) string {
+	return path.Join(self.mnt, chunk+".chunk")
+}
+
+func (self *FsData) Handle(trans helper.Transaction) error {
+	if trans.Action == "fs_move" {
+		if err := self.Move(trans.Params.Params.InputTables, trans.Params.Params.OutputTables[0]); err != nil {
+			return err
+		}
+	} else if trans.Action == "fs_move_chunks" {
+		if err := self.MoveChunks(trans.Params.Chunks, trans.Params.OutputChunkNums, trans.Params.Params.InputTables, trans.Params.OutputTables[0]); err != nil {
+			return err
+		}
+	} else if trans.Action == "fs_copy" {
+		if err := self.Copy(trans.Params.Params.InputTables, trans.Params.Params.OutputTables[0]); err != nil {
+			return err
+		}
+	} else if trans.Action == "fs_drop" {
+		if err := self.Del(trans.Params.Params.InputTables); err != nil {
+			return err
+		}
+	}
+
+	if err := self.data.Write("1.fsdat"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func dumpTransaction(trans helper.Transaction) (string, error) {
 	res := ""
 	for k, v := range trans.Params.Params.Files {
 		isBinary := false
@@ -84,270 +199,261 @@ func dumpTransaction(trans helper.Transaction) string {
 		p := path.Join(trans.Id, k)
 		f, err := os.Create(p)
 		if err != nil {
-			panic(err)
+			return "", err
 		}
 
-		f.Write([]byte(v))
-		f.Close()
+		if err := helper.WriteAll(f, []byte(v)); err != nil {
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
 
 		if isBinary {
 			if err := os.Chmod(p, os.ModePerm); err != nil {
-				panic(err)
+				return "", err
 			}
 			res = k
 		}
 	}
-	return res
+	return res, nil
 }
 
-func onTransaction(trans helper.Transaction, conn net.Conn) {
-	if trans.Action == "get_chunks" {
-		if err := fsdata.Read("./"); err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		bs, err := json.Marshal(fsdata)
-		if err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		trans.Payload = bs
-		trans.Status = "finished"
-		sendTrans(conn, trans)
-		fmt.Println("~~~~~ get_chunks")
-		return
-	}
-
-	if trans.Action == "move" {
-		fmt.Println(trans.Params.Params.InputTables, trans.Params.OutputTables, trans.Params.Chunks)
-		for _, inTbl := range trans.Params.Params.InputTables {
-			for _, v := range trans.Params.Chunks {
-				tags := fsdata.Chunks[v].Tags
-				for i, tag := range tags {
-					if tag == inTbl {
-						tags[i] = trans.Params.OutputTables[0]
-					}
-				}
-			}
-		}
-
-		if err := fsdata.Write("1.fsdat"); err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		trans.Status = "finished"
-		sendTrans(conn, trans)
-		fmt.Println("~~~~~ move", trans)
-	} else if trans.Action == "copy" {
-		for _, v := range trans.Params.Chunks {
-			fsdata.Chunks[v].Tags = append(fsdata.Chunks[v].Tags, trans.Params.OutputTables[0])
-		}
-
-		if err := fsdata.Write("1.fsdat"); err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		trans.Status = "finished"
-		sendTrans(conn, trans)
-		fmt.Println("~~~~~ copy", trans)
-	} else if trans.Action == "drop" {
-		for _, inTbl := range trans.Params.Params.InputTables {
-			for _, v := range trans.Params.Chunks {
-				tags := fsdata.Chunks[v].Tags
-				ids := []int{}
-				for i, tag := range tags {
-					if tag == inTbl {
-						ids = append(ids, i)
-					}
-				}
-				fmt.Println(inTbl, ids)
-				if len(ids) == len(tags) {
-					delete(fsdata.Chunks, v)
-					os.Remove(path.Join(mnt, v+".chunk"))
-					continue
-				}
-
-				fmt.Println(tags)
-				for _, i := range ids {
-					tags = append(tags[:i], tags[i+1:]...)
-					fmt.Println(tags)
-				}
-
-				if len(tags) == 0 {
-					delete(fsdata.Chunks, v)
-					os.Remove(path.Join(mnt, v+".chunk"))
-					continue
-				}
-
-				fsdata.Chunks[v].Tags = tags
-			}
-		}
-
-		if err := fsdata.Write("1.fsdat"); err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		trans.Status = "finished"
-		sendTrans(conn, trans)
-		fmt.Println("~~~~~ drop", trans)
-	} else if trans.Action == "map" {
-		trans.Status = "received_files"
-		sendTransOrPrint(conn, trans)
-
-		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|os.ModePerm); err != nil {
-			panic(err)
-		}
-		defer os.RemoveAll(trans.Id)
-
-		bin := dumpTransaction(trans)
-
-		trans.Status = "running"
-		sendTrans(conn, trans)
-		fmt.Println("Transaction " + trans.Id + " " + trans.Status)
-		cfg := JobConfig{
-			Dir:          uuid.New(),
-			Jtype:        trans.Params.Params.Type,
-			Name:         trans.Params.Params.Name,
-			Object:       trans.Params.Params.Object,
-			Chunks:       trans.Params.Chunks,
-			OutputTables: trans.Params.OutputTables,
-		}
-		buf, err := json.Marshal(cfg)
-		if err != nil {
-			panic(err)
-		}
-
-		cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob", "-mnt", mnt)
-		cmd.Stdin = bytes.NewReader(buf)
-
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			panic(err)
-		}
-
-		fmt.Println("~~~~~~Stderr:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		fmt.Print(string(stderr.Bytes()))
-		fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		fmt.Print(string(stdout.Bytes()))
-		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-
-		// cmdPrefix := "!hipstmrjob: "
-		// for ; ; {
-		// 	str, err := stdout.ReadString('\n')
-		// 	if err != nil && err != io.EOF {
-		// 		panic(err)
-		// 	}
-
-		// 	if strings.HasPrefix(str, cmdPrefix) {
-		// 		str = str[len(cmdPrefix):len(str)-1]
-		// 		fmt.Println("command from job", str)
-		// 	}
-
-		// 	if err == io.EOF {
-		// 		break
-		// 	}
-		// }
-
-		fmt.Println("!!!", cfg.OutputTables)
-
-		for _, tbl := range cfg.OutputTables {
-			p := path.Clean(path.Join(mnt, cfg.Dir, tbl))
-			fmt.Println("Moving from dir", p)
-			dir, err := ioutil.ReadDir(p)
-			if err != nil {
-				trans.Status = "failed"
-				sendTrans(conn, trans)
-				return
-			}
-
-			for _, v := range dir {
-				if v.IsDir() || !strings.HasSuffix(v.Name(), ".chunk") {
-					trans.Status = "failed"
-					sendTrans(conn, trans)
-					return
-				}
-
-				nm := v.Name()
-				num, err := strconv.ParseUint(nm[:len(nm)-len(".chunk")], 10, 64)
-				if err != nil {
-					trans.Status = "failed"
-					sendTrans(conn, trans)
-					return
-				}
-
-				id := uuid.New()
-				fmt.Println("Rename", path.Join(p, nm), "to", path.Join(mnt, id+".chunk"))
-				if err := os.Rename(path.Join(p, nm), path.Join(mnt, id+".chunk")); err != nil {
-					trans.Status = "failed"
-					sendTrans(conn, trans)
-					return
-				}
-
-				fsdata.Chunks[id] = &helper.ChunkData{
-					Num:  num,
-					Tags: []string{tbl},
-				}
-			}
-
-			if err := os.RemoveAll(path.Join(mnt, cfg.Dir)); err != nil {
-				trans.Status = "failed"
-				sendTrans(conn, trans)
-				return
-			}
-		}
-
-		if err := fsdata.Write("1.fsdat"); err != nil {
-			trans.Status = "failed"
-			sendTrans(conn, trans)
-			return
-		}
-
-		trans.Status = "finished"
-		trans.Payload = string(string(stderr.Bytes()))
-		sendTrans(conn, trans)
-	}
-}
-
-func sendTrans(conn net.Conn, trans helper.Transaction) error {
-	trans.Params.Params = nil
-	bytes, err := json.Marshal(trans)
+func (self *FsData) DoMap(master *Master, trans *helper.Transaction) error {
+	bin, err := dumpTransaction(*trans)
 	if err != nil {
 		return err
 	}
-	conn.Write(bytes)
-	return nil
-}
 
-func sendTransOrPrint(conn net.Conn, trans helper.Transaction) {
-	if err := sendTrans(conn, trans); err != nil {
-		fmt.Println("Error:", err)
-	}
-}
-
-func sendTransOrFail(conn net.Conn, trans helper.Transaction) error {
-	if err := sendTrans(conn, trans); err != nil {
-		trans.Status = "failed"
-		sendTrans(conn, trans)
+	trans.Status = "received_files"
+	if err := master.Send(*trans); err != nil {
 		return err
 	}
+
+	cfg := JobConfig{
+		Mnt: self.mnt,
+		Dir:          path.Join(trans.Id, uuid.New()),
+		Jtype:        trans.Params.Params.Type,
+		Name:         trans.Params.Params.Name,
+		Object:       trans.Params.Params.Object,
+		Chunks:       trans.Params.Chunks,
+		OutputTables: trans.Params.OutputTables,
+	}
+
+	buf, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(path.Join(".", trans.Id, bin), "-hipstmrjob")
+	cmd.Stdin = bytes.NewReader(buf)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+
+	fmt.Println("~~~~~~Stderr:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+	fmt.Print(string(stderr.Bytes()))
+	fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+	fmt.Print(string(stdout.Bytes()))
+	fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
+	if err != nil {
+		return err
+	}
+
+	for _, tbl := range cfg.OutputTables {
+		p := path.Clean(path.Join(self.mnt, cfg.Dir, tbl))
+		dir, err := ioutil.ReadDir(p)
+		if err != nil {
+			return err
+		}
+
+		chunkSuffix := ".chunk"
+		for _, v := range dir {
+			nm := v.Name()
+			if v.IsDir() || !strings.HasSuffix(nm, chunkSuffix) {
+				return errors.New(nm + " is not a chunk.")
+			}
+
+			num, err := strconv.ParseUint(nm[:len(nm)-len(chunkSuffix)], 10, 64)
+			if err != nil {
+				return err
+			}
+
+			id := uuid.New()
+			if err := os.Rename(path.Join(p, nm), path.Join(self.mnt, id+chunkSuffix)); err != nil {
+				return err
+			}
+			fmt.Println("Rename", path.Join(p, nm), "to", path.Join(self.mnt, id+chunkSuffix))
+			self.AddChunk(id, tbl, num)
+		}
+	}
+
+	if err := self.data.Write("1.fsdat"); err != nil {
+		return err
+	}
+
+	// TODO: put in safe place (defer?)
+	if err := os.RemoveAll(path.Join(self.mnt, trans.Id)); err != nil {
+		return err
+	}
+
+	trans.Status = "finished"
+	trans.Payload = string(stderr.Bytes())
 	return nil
 }
 
-var mnt string
-var fsdata *helper.FsData
+func NewFsData(mnt, dir string) FsData {
+	return FsData{
+		mnt:  path.Clean(mnt),
+		dir:  path.Clean(dir),
+		data: helper.FsData{},
+	}
+}
+
+type Master struct {
+	address string
+	conn    net.Conn
+	decoder *json.Decoder
+}
+
+func (self *Master) Loop(slave *Slave) {
+	for {
+		var trans helper.Transaction
+		err := self.decoder.Decode(&trans)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			self.Failed(trans, err)
+			continue
+		}
+
+		if err := slave.Handle(self, trans); err != nil {
+			self.Failed(trans, err)
+			continue
+		}
+	}
+	slave.OnDisconnected(self)
+}
+
+func (self *Master) Failed(trans helper.Transaction, origErr error) {
+	trans.Params.Params = nil
+	trans.Params.Chunks = nil
+	trans.Params.OutputTables = nil
+	trans.Payload = nil
+	trans.Status = "failed"
+	fmt.Println(origErr)
+	if err := self.Send(trans); err != nil {
+		fmt.Println("Errors:", origErr, err)
+	}
+}
+
+func (self *Master) Send(trans helper.Transaction) error {
+	return trans.Send(self.conn)
+}
+
+func (self *Master) Close() error {
+	return self.conn.Close()
+}
+
+func NewMaster(addr string) (Master, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return Master{}, err
+	}
+
+	return Master{
+		address: addr,
+		conn:    conn,
+		decoder: json.NewDecoder(bufio.NewReader(conn)),
+	}, nil
+}
+
+
+type Slave struct {
+	masters map[string]Master
+	fsdata  FsData
+}
+
+func (self *Slave) Connect(addr string) error {
+	_, ok := self.masters[addr]
+	if ok {
+		return errors.New("There is already a connection to master " + addr)
+	}
+
+	trans := helper.NewTransaction("connect_slave")
+	master, err := NewMaster(addr)
+	if err != nil {
+		return err
+	}
+
+	if err := master.Send(trans); err != nil {
+		master.Close()
+		return err
+	}
+
+	go master.Loop(self)
+
+	self.masters[addr] = master
+	return nil
+}
+
+func (self *Slave) OnDisconnected(master *Master) {
+	delete(self.masters, master.address)
+	if len(self.masters) == 0 {
+		panic("No active masters!")
+	}
+}
+
+func (self *Slave) Close() error {
+	var err error = nil
+	for _, v := range self.masters {
+		err = v.Close()
+	}
+	return err
+}
+
+func (self *Slave) Handle(master *Master, trans helper.Transaction) error {
+	fmt.Println(trans)
+	if trans.Action == "fs_get" {
+		err := self.fsdata.GetFs(&trans)
+		if err != nil {
+			return err
+		}
+	} else if trans.Action[:3] == "fs_" {
+		if err := self.fsdata.Handle(trans); err != nil {
+			return err
+		}
+	} else if trans.Action == "mr_map" {
+		if err := os.Mkdir(trans.Id, os.ModeTemporary|os.ModeDir|os.ModePerm); err != nil {
+			return err
+		}
+
+		errMap := self.fsdata.DoMap(master, &trans)
+		if err := os.RemoveAll(trans.Id); err != nil {
+			return err
+		}
+		if errMap != nil {
+			return errMap
+		}
+	}
+	trans.Status = "finished"
+	fmt.Println("~", trans)
+	master.Send(trans)
+	return nil
+}
+
+func NewSlave(mnt, dir string) Slave {
+	return Slave{
+		masters: make(map[string]Master),
+		fsdata:  NewFsData(mnt, dir),
+	}
+}
 
 func main() {
 	help := flag.Bool("help", false, "print this help")
@@ -359,48 +465,20 @@ func main() {
 		return
 	}
 
-	mnt = *mntv
+	slave := NewSlave(*mntv, "./")
+	defer slave.Close()
 
-	mnt = path.Clean(mnt)
+	if err := slave.fsdata.Read(); err != nil {
+		panic(err)
+	}
+	slave.fsdata.data.Write("1.fsdat")
+	slave.fsdata.ClearFs()
 
-	fsdata = &helper.FsData{}
-	if err := fsdata.Read("./"); err != nil {
+	fmt.Println(slave.fsdata)
+
+	if err := slave.Connect(*master); err != nil {
 		panic(err)
 	}
 
-	fsdata.ClearFs(mnt)
-
-	fmt.Println(fsdata)
-
-	var trans helper.Transaction
-	trans.Action = "connect_slave"
-
-	res, err := json.Marshal(&trans)
-	if err != nil {
-		panic(err)
-	}
-
-	conn, err := net.Dial("tcp", *master)
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-
-	conn.Write(res)
-
-	decoder := json.NewDecoder(bufio.NewReader(conn))
-
-	for {
-		var trans helper.Transaction
-		err = decoder.Decode(&trans)
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			panic(err)
-		}
-
-		go onTransaction(trans, conn)
-	}
+	select {}
 }

@@ -1,32 +1,47 @@
 {
 	"18086523-b35a-4c8a-8b82-aa09db1124c7": {
-		"num": 1,
+		"size": 0,
 		"tags": [
-			"tbl3"
+			{
+				"tag": "tbl3",
+				"num": 1
+			}
 		]
 	},
 	"1ab804d2-fe48-45b3-8df6-a93b67329881": {
-		"num": 4,
+		"size": 0,
 		"tags": [
-			"test/tbl1"
+			{
+				"tag": "test/tbl1",
+				"num": 4
+			}
 		]
 	},
 	"8eec593c-0a54-4c31-86b8-5c404b9093b3": {
-		"num": 5,
+		"size": 0,
 		"tags": [
-			"tbl2"
+			{
+				"tag": "tbl2",
+				"num": 5
+			}
 		]
 	},
 	"c8579a3e-b359-449d-9894-c3ee0c0e4086": {
-		"num": 3,
+		"size": 0,
 		"tags": [
-			"test/tbl1"
+			{
+				"tag": "test/tbl1",
+				"num": 3
+			}
 		]
 	},
 	"e31b46fe-9444-4a94-a39b-9362bff76775": {
-		"num": 4,
+		"size": 0,
 		"tags": [
-			"tbl2"
+			{
+				"tag": "tbl2",
+				"num": 4
+			}
 		]
 	}
 }

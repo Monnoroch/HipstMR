@@ -11,6 +11,7 @@ type Params struct {
 	Params       *hipstmr.Params `json:"params"`
 	Chunks       []string        `json:"chunks"`
 	OutputTables []string        `json:"output_tables"`
+	OutputChunkNums []uint64 `json:"output_chunks_nums"`
 }
 
 type Transaction struct {

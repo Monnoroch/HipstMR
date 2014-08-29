@@ -64,21 +64,12 @@ type transaction struct {
 	Payload interface{} `json:"payload"`
 }
 
-func writeAll(conn net.Conn, buf []byte) error {
-	total := len(buf)
-	sum := 0
-	for sum != total {
-		n, err := conn.Write(buf)
-		if err != nil {
-			return err
-		}
-		sum += n
-		buf = buf[:n]
-	}
-	return nil
-}
-
 func (self *Server) Move(params *Params) error {
+	files := params.Files
+	params.Files = nil
+	defer func() {
+		params.Files = files
+	}()
 	params.Type = "move"
 
 	var trans transaction
@@ -93,6 +84,11 @@ func (self *Server) MoveIO(from, to string) error {
 }
 
 func (self *Server) Copy(params *Params) error {
+	files := params.Files
+	params.Files = nil
+	defer func() {
+		params.Files = files
+	}()
 	params.Type = "copy"
 
 	var trans transaction
@@ -107,6 +103,11 @@ func (self *Server) CopyIO(from, to string) error {
 }
 
 func (self *Server) Drop(params *Params) error {
+	files := params.Files
+	params.Files = nil
+	defer func() {
+		params.Files = files
+	}()
 	params.Type = "drop"
 
 	var trans transaction
@@ -157,6 +158,23 @@ func (self *Server) run(trans *transaction) error {
 			fmt.Println("Stderr:")
 			fmt.Println(str)
 		}
+	}
+	return nil
+}
+
+func writeAll(writer io.Writer, buf []byte) error {
+	for {
+		cnt := len(buf)
+		n, err := writer.Write(buf)
+		if err != nil {
+			return err
+		}
+
+		if n == cnt {
+			break
+		}
+
+		buf = buf[n:]
 	}
 	return nil
 }
