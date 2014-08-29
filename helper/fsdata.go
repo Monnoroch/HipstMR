@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	// "fmt"
 )
 
 type TagNumPair struct {
@@ -15,14 +14,17 @@ type TagNumPair struct {
 	Num uint64  `json:"num"`
 }
 
-type TagsSet map[string]TagNumPair
+type TagsSet map[string][]uint64
 
 func (self TagsSet) MarshalJSON() ([]byte, error) {
-	arr := make([]TagNumPair, len(self))
-	i := 0
-	for _, v := range self {
-		arr[i] = v
-		i += 1
+	arr := make([]TagNumPair, 0)
+	for k, lst := range self {
+		for _, n := range lst {
+			arr = append(arr, TagNumPair{
+				Tag: k,
+				Num: n,
+			})
+		}
 	}
 	return json.Marshal(arr)
 }
@@ -35,7 +37,7 @@ func (self *TagsSet) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, v := range arr {
-		(*self)[v.Tag] = v
+		(*self)[v.Tag] = append((*self)[v.Tag], v.Num)
 	}
 	return nil
 }

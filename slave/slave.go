@@ -71,10 +71,7 @@ func (self *FsData) Move(inputs []string, output string) error {
 			}
 
 			delete(v.Tags, in)
-			v.Tags[output] = helper.TagNumPair{
-				Tag: output,
-				Num: num,
-			}
+			v.Tags[output] = append(v.Tags[output], num)
 			num++
 		}
 	}
@@ -99,11 +96,7 @@ func (self *FsData) MoveChunks(chunks []string, nums []uint64, inputs []string, 
 				}
 			}
 		}
-
-		ch.Tags[output] = helper.TagNumPair{
-			Tag: output,
-			Num: nums[i],
-		}
+		ch.Tags[output] = append(ch.Tags[output], nums[i])
 	}
 	return nil
 }
@@ -121,10 +114,7 @@ func (self *FsData) Copy(inputs []string, output string) error {
 				continue
 			}
 
-			v.Tags[output] = helper.TagNumPair{
-				Tag: output,
-				Num: num,
-			}
+			v.Tags[output] = append(v.Tags[output], num)
 			num++
 		}
 	}
@@ -151,10 +141,7 @@ func (self *FsData) Del(inputs []string) error {
 
 func (self *FsData) AddChunk(id, tag string, num uint64) {
 	self.data.Chunks[id] = &helper.ChunkData{
-		Tags: map[string]helper.TagNumPair{tag: helper.TagNumPair{
-			Tag: tag,
-			Num: num,
-		}},
+		Tags: map[string][]uint64{tag: []uint64{num}},
 	}
 }
 
