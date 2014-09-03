@@ -1,1 +1,3 @@
 *.chunk.*
+fileserver/data/*
+fileserver1/*
