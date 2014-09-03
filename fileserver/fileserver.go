@@ -17,6 +17,10 @@ func doubleErr(err, err1 error) error {
 	return errors.New(fmt.Sprintf("Errors: {%v, %v}", err, err1))
 }
 
+func tripleErr(err, err1, err2 error) error {
+	return errors.New(fmt.Sprintf("Errors: {%v, %v, %v}", err, err1, err2))
+}
+
 func WriteAll(writer io.Writer, buf []byte) error {
 	for {
 		cnt := len(buf)
@@ -61,6 +65,55 @@ func createFile(to string, data []byte) (rerr error) {
 	return nil
 }
 
+
+func copyFile(from, to string) (rerr error) {
+	in, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		// non-fatal to transaction
+		if err := in.Close(); err != nil {
+			fmt.Println("Error:", err)
+		}
+	}()
+
+	out, err := os.Create(to)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := out.Close(); err != nil {
+			if rerr != nil {
+				rerr = doubleErr(rerr, err)
+			} else {
+				rerr = err
+			}
+		}
+	}()
+
+	_, rerr = io.Copy(out, in)
+	if rerr != nil {
+		return rerr
+	}
+
+	return nil
+}
+
+func moveFile(from, to string) (rerr error) {
+	base := path.Dir(to)
+	if err := os.MkdirAll(base, os.ModeDir|os.ModeTemporary|os.ModePerm); err != nil {
+		return err
+	}
+
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type fileServerCommand struct {
 	Id      string            `json"id"`
 	Status  string            `json"status"`
@@ -88,42 +141,29 @@ func Failed(cmd fileServerCommand, conn net.Conn, origErr error) {
 	}
 }
 
-func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) (rerr error) {
+func Send(cmd fileServerCommand, conn net.Conn) {
+	if err := cmd.Send(conn); err != nil {
+		// just can't tell the client about the result
+		fmt.Println("Error:", err)
+	}
+}
+
+func Success(cmd fileServerCommand, conn net.Conn) {
+	cmd.Status = "finished"
+	Send(cmd, conn)
+}
+
+func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 	if to == from {
 		return nil
 	}
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		cerr := in.Close()
-		if rerr == nil {
-			rerr = cerr
-		} else {
-			rerr = doubleErr(rerr, cerr)
-		}
-	}()
 
-	out, err := os.Create(to)
-	if err != nil {
-		return
-	}
-	defer func() {
-		cerr := out.Close()
-		if rerr == nil {
-			rerr = cerr
-		} else {
-			rerr = doubleErr(rerr, cerr)
-		}
-	}()
-
-	if _, err = io.Copy(out, in); err != nil {
+	if err := copyFile(from, to); err != nil {
 		return err
 	}
 
-	cmd.Status = "finished"
-	return cmd.Send(conn)
+	Success(cmd, conn)
+	return nil
 }
 
 func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) error {
@@ -146,7 +186,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		Params: map[string]string{
 			"to": to,
 		},
-		Payload: json.RawMessage(file),
+		Payload: file,
 	}
 	if err := cmdTo.Send(connTo); err != nil {
 		return err
@@ -157,7 +197,8 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	return cmdFrom.Send(conn)
+	Send(cmdFrom, conn)
+	return nil
 }
 
 func copy(cmd fileServerCommand, mnt string, conn net.Conn) error {
@@ -178,12 +219,13 @@ func moveLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 	if to == from {
 		return nil
 	}
-	if err := os.Rename(from, to); err != nil {
+
+	if err := moveFile(from, to); err != nil {
 		return err
 	}
 
-	cmd.Status = "finished"
-	return cmd.Send(conn)
+	Success(cmd, conn)
+	return nil
 }
 
 func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) error {
@@ -206,7 +248,7 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		Params: map[string]string{
 			"to": to,
 		},
-		Payload: json.RawMessage(file),
+		Payload: file,
 	}
 	if err := cmdTo.Send(connTo); err != nil {
 		return err
@@ -218,9 +260,11 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 	}
 
 	if cmdFrom.Status == "failed" {
-		return cmdFrom.Send(conn)
+		Send(cmdFrom, conn)
+		return nil
 	}
 
+	// TODO!!!
 	if err := os.Remove(from); err != nil {
 		// fallback at remote server
 		cmdDel := fileServerCommand{
@@ -248,7 +292,7 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	return cmdFrom.Send(conn)
+	Success(cmdFrom, conn)
 }
 
 func move(cmd fileServerCommand, mnt string, conn net.Conn) error {
@@ -271,8 +315,8 @@ func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
 		return err
 	}
 
-	cmd.Status = "finished"
-	return cmd.Send(conn)
+	Success(cmd, conn)
+	return nil
 }
 
 func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
@@ -281,8 +325,8 @@ func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
 		return err
 	}
 
-	cmd.Status = "finished"
-	return cmd.Send(conn)
+	Success(cmd, conn)
+	return nil
 }
 
 func onCommand(cmd fileServerCommand, mnt string, conn net.Conn) error {
