@@ -27,22 +27,30 @@ func runFsRec(fs *fileserver.Server) {
 	go runFsRec(fs)
 }
 
-func (self *Cluster) Run() {
+func (self *Cluster) Run(forever bool) {
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.GoForever()
+			if forever {
+				v.GoForever()
+			} else {
+				v.Go()
+			}
 		}
 	}
 	select{}
 }
 
-func (self *Cluster) RunMultiProc(binaryPath string) {
+func (self *Cluster) RunMultiProc(forever bool, binaryPath string) {
 	binaryPath = path.Clean(binaryPath)
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.GoProcessDebugForever(binaryPath)
+			if forever {
+				v.GoProcessDebugForever(binaryPath)
+			} else {
+				v.GoProcessDebug(binaryPath)
+			}
 		}
 	}
 	select{}
@@ -109,6 +117,7 @@ func main() {
 	cfgFile := flag.String("config", "", "config file path")
 	multiprocess := flag.Bool("multiprocess", false, "run in multiple processes (need to specify fsbinary)")
 	fsbinary := flag.String("fsbinary", "", "fileserver binary for ")
+	forever := flag.Bool("forever", false, "restart failed jobs")
 	flag.Parse()
 	if *help || *cfgFile == "" || (*multiprocess && *fsbinary == "") {
 		flag.PrintDefaults()
@@ -128,9 +137,9 @@ func main() {
 			panic(err)
 		}
 
-		cluster.RunMultiProc(path.Join(p, *fsbinary))
+		cluster.RunMultiProc(*forever, path.Join(p, *fsbinary))
 	} else {
-		cluster.Run()
+		cluster.Run(*forever)
 	}
 }
 

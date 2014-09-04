@@ -4,11 +4,11 @@
 		"fileservers": [
 			{
 				"port": "8010",
-				"mnt": "../fileserver_test/data"
+				"mnt": "data"
 			},
 			{
 				"port": "8011",
-				"mnt": "../fileserver_test/data1"
+				"mnt": "data1"
 			}
 		]
 	}

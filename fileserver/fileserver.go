@@ -52,6 +52,9 @@ func (self *Server) Run() error {
 		for {
 			conn, err := sock.Accept()
 			conns <- connErrPair{conn, err}
+			if err != nil {
+				return
+			}
 		}
 	}()
 
@@ -70,7 +73,16 @@ func (self *Server) Run() error {
 			go handle(stop, self.mnt, conn.conn)
 		}
 	}
+
 	return nil
+}
+
+func (self *Server) Go() {
+	go func() {
+		if err := self.Run(); err != nil {
+			fmt.Println("Error Go:", err)
+		}
+	}()
 }
 
 func (self *Server) RunProcess(binaryPath string) (string, string, error) {
@@ -81,6 +93,14 @@ func (self *Server) RunProcess(binaryPath string) (string, string, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return string(stdout.Bytes()), string(stderr.Bytes()), err
+}
+
+func (self *Server) GoProcess(binaryPath string) {
+	go func() {
+		if _, _, err := self.RunProcess(binaryPath); err != nil {
+			fmt.Println("Error GoProcess:", err)
+		}
+	}()
 }
 
 func (self *Server) RunProcessDebug(binaryPath string) error {
@@ -97,6 +117,14 @@ func (self *Server) RunProcessDebug(binaryPath string) error {
 		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 	}
 	return err
+}
+
+func (self *Server) GoProcessDebug(binaryPath string) {
+	go func() {
+		if err := self.RunProcessDebug(binaryPath); err != nil {
+			fmt.Println("Error GoProcessDebug:", err)
+		}
+	}()
 }
 
 func (self *Server) GoForever() {
