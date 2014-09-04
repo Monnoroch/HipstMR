@@ -278,16 +278,6 @@ func move(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	}
 }
 
-func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
-	to := path.Clean(path.Join(mnt, cmd.Params["to"]))
-	if err := createFile(to, cmd.Payload); err != nil {
-		return err
-	}
-
-	Success(cmd, conn)
-	return nil
-}
-
 func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
 	if err := os.Remove(from); err != nil {
@@ -298,18 +288,43 @@ func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	return nil
 }
 
+func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
+	to := path.Clean(path.Join(mnt, cmd.Params["to"]))
+	if err := createFile(to, cmd.Payload); err != nil {
+		return err
+	}
+
+	Success(cmd, conn)
+	return nil
+}
+
+func get(cmd fileServerCommand, mnt string, conn net.Conn) error {
+	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
+
+	file, err := ioutil.ReadFile(from)
+	if err != nil {
+		return err
+	}
+
+	cmd.Payload = file
+	Success(cmd, conn)
+	return nil
+}
+
 func onCommand(cmd fileServerCommand, mnt string, conn net.Conn) error {
-	fmt.Println("Received "+cmd.Action+" command:", cmd)
+	fmt.Println("Received " + cmd.Action + " command:", cmd)
 	defer func() {
 		fmt.Println("Done with " + cmd.Action)
 	}()
 	switch cmd.Action {
+	case "get":
+		return get(cmd, mnt, conn)
+	case "put":
+		return put(cmd, mnt, conn)
 	case "copy":
 		return copy(cmd, mnt, conn)
 	case "move":
 		return move(cmd, mnt, conn)
-	case "put":
-		return put(cmd, mnt, conn)
 	case "del":
 		return del(cmd, mnt, conn)
 	default:
