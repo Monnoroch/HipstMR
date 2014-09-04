@@ -1,10 +1,9 @@
-package main
+package fileserver
 
 import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,6 +11,51 @@ import (
 	"os"
 	"path"
 )
+
+type FileServerCommand struct {
+	Id      string            `json"id"`
+	Status  string            `json"status"`
+	Action  string            `json"action"`
+	Params  map[string]string `json"params"`
+	Payload []byte            `json"payload"`
+}
+
+func (self *FileServerCommand) Send(conn net.Conn) error {
+	bytes, err := json.Marshal(self)
+	if err != nil {
+		return err
+	}
+	return writeAll(conn, bytes)
+}
+
+type Server struct {
+	addr string
+	mnt  string
+}
+
+func (self *Server) Run() error {
+	sock, err := net.Listen("tcp", self.addr)
+	if err != nil {
+		return err
+	}
+
+	for {
+		conn, err := sock.Accept()
+		if err != nil {
+			return err
+		}
+
+		go handle(self.mnt, conn)
+	}
+	return nil
+}
+
+func NewServer(addr, mnt string) Server {
+	return Server{
+		addr: addr,
+		mnt:  mnt,
+	}
+}
 
 func doubleErr(err, err1 error) error {
 	return errors.New(fmt.Sprintf("Errors: {%v, %v}", err, err1))
@@ -109,23 +153,7 @@ func moveFile(from, to string) error {
 	return nil
 }
 
-type fileServerCommand struct {
-	Id      string            `json"id"`
-	Status  string            `json"status"`
-	Action  string            `json"action"`
-	Params  map[string]string `json"params"`
-	Payload []byte            `json"payload"`
-}
-
-func (self *fileServerCommand) Send(conn net.Conn) error {
-	bytes, err := json.Marshal(self)
-	if err != nil {
-		return err
-	}
-	return writeAll(conn, bytes)
-}
-
-func failed(cmd fileServerCommand, conn net.Conn, origErr error) {
+func failed(cmd FileServerCommand, conn net.Conn, origErr error) {
 	cmd.Status = "failed"
 	cmd.Params = nil
 	cmd.Payload = nil
@@ -136,19 +164,19 @@ func failed(cmd fileServerCommand, conn net.Conn, origErr error) {
 	}
 }
 
-func send(cmd fileServerCommand, conn net.Conn) {
+func send(cmd FileServerCommand, conn net.Conn) {
 	if err := cmd.Send(conn); err != nil {
 		// just can't tell the client about the result
 		fmt.Println("Error send:", err)
 	}
 }
 
-func success(cmd fileServerCommand, conn net.Conn) {
+func success(cmd FileServerCommand, conn net.Conn) {
 	cmd.Status = "finished"
 	send(cmd, conn)
 }
 
-func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
+func copyLocal(from, to string, cmd FileServerCommand, conn net.Conn) error {
 	if to == from {
 		return nil
 	}
@@ -161,7 +189,7 @@ func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 	return nil
 }
 
-func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) error {
+func copyRemote(from, to, addr string, cmd FileServerCommand, conn net.Conn) error {
 	file, err := ioutil.ReadFile(from)
 	if err != nil {
 		return err
@@ -172,7 +200,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	cmdTo := fileServerCommand{
+	cmdTo := FileServerCommand{
 		Id:     cmd.Id,
 		Status: "started",
 		Action: "put",
@@ -185,7 +213,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	var cmdFrom fileServerCommand
+	var cmdFrom FileServerCommand
 	if err := json.NewDecoder(bufio.NewReader(connTo)).Decode(&cmdFrom); err != nil {
 		return err
 	}
@@ -194,7 +222,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 	return nil
 }
 
-func copy(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func copy(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
 	to := cmd.Params["to"]
 	if to == "" {
@@ -208,7 +236,7 @@ func copy(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	}
 }
 
-func moveLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
+func moveLocal(from, to string, cmd FileServerCommand, conn net.Conn) error {
 	if to == from {
 		return nil
 	}
@@ -221,7 +249,7 @@ func moveLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 	return nil
 }
 
-func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) error {
+func moveRemote(from, to, addr string, cmd FileServerCommand, conn net.Conn) error {
 	file, err := ioutil.ReadFile(from)
 	if err != nil {
 		return err
@@ -232,7 +260,7 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	cmdTo := fileServerCommand{
+	cmdTo := FileServerCommand{
 		Id:     cmd.Id,
 		Status: "started",
 		Action: "put",
@@ -247,7 +275,7 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 
 	decoder := json.NewDecoder(bufio.NewReader(connTo))
 
-	var cmdFrom fileServerCommand
+	var cmdFrom FileServerCommand
 	if err := decoder.Decode(&cmdFrom); err != nil {
 		return err
 	}
@@ -263,7 +291,7 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 	return nil
 }
 
-func move(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func move(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
 	to := cmd.Params["to"]
 	if to == "" {
@@ -277,7 +305,7 @@ func move(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	}
 }
 
-func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func del(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
 	if err := os.Remove(from); err != nil {
 		return err
@@ -287,7 +315,7 @@ func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	return nil
 }
 
-func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func put(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	to := path.Clean(path.Join(mnt, cmd.Params["to"]))
 	if err := createFile(to, cmd.Payload); err != nil {
 		return err
@@ -297,7 +325,7 @@ func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	return nil
 }
 
-func get(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func get(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	from := path.Clean(path.Join(mnt, cmd.Params["from"]))
 
 	file, err := ioutil.ReadFile(from)
@@ -310,7 +338,7 @@ func get(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	return nil
 }
 
-func onCommand(cmd fileServerCommand, mnt string, conn net.Conn) error {
+func onCommand(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	fmt.Println("Received "+cmd.Action+" command:", cmd)
 	defer func() {
 		fmt.Println("Done with " + cmd.Action)
@@ -334,7 +362,7 @@ func onCommand(cmd fileServerCommand, mnt string, conn net.Conn) error {
 func doHandle(mnt string, conn net.Conn) error {
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 	for {
-		var cmd fileServerCommand
+		var cmd FileServerCommand
 		err := decoder.Decode(&cmd)
 		if err == io.EOF {
 			return nil
@@ -358,31 +386,6 @@ func handle(mnt string, conn net.Conn) {
 		}
 	}()
 	if err := doHandle(mnt, conn); err != nil {
-		failed(fileServerCommand{}, conn, err)
-	}
-}
-
-func main() {
-	help := flag.Bool("help", false, "print this help")
-	address := flag.String("address", "", "fileserver adress")
-	mnt := flag.String("mnt", "", "mount dir")
-	flag.Parse()
-	if *help || *address == "" {
-		flag.PrintDefaults()
-		return
-	}
-
-	sock, err := net.Listen("tcp", *address)
-	if err != nil {
-		panic(err)
-	}
-
-	for {
-		conn, err := sock.Accept()
-		if err != nil {
-			panic(err)
-		}
-
-		go handle(*mnt, conn)
+		failed(FileServerCommand{}, conn, err)
 	}
 }

@@ -1,3 +1,2 @@
 *.chunk.*
-fileserver/data/*
-fileserver/data1/*
+fileserver_test/data*
