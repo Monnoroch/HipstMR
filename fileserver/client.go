@@ -57,6 +57,10 @@ func runTransaction(cmd fileServerCommand, conn net.Conn, decoder *json.Decoder)
 	if cmdFrom.Status == "failed" {
 		panic(fmt.Sprintf("%v", cmdFrom))
 	}
+
+	if cmdFrom.Action == "get" {
+		fmt.Println("\nFile:", string(cmdFrom.Payload))
+	}
 }
 
 func main() {
@@ -139,4 +143,14 @@ func main() {
 		},
 	}
 	runTransaction(cmdMove, conn, decoder)
+
+	cmdGet := fileServerCommand{
+		Id:     uuid.New(),
+		Status: "started",
+		Action: "get",
+		Params: map[string]string{
+			"from": "file2.txt",
+		},
+	}
+	runTransaction(cmdGet, conn, decoder)
 }
