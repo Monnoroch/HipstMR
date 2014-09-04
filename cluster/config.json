@@ -1,0 +1,15 @@
+[
+	{
+		"address": "localhost",
+		"fileservers": [
+			{
+				"port": "8010",
+				"mnt": "../fileserver_test/data"
+			},
+			{
+				"port": "8011",
+				"mnt": "../fileserver_test/data1"
+			}
+		]
+	}
+]

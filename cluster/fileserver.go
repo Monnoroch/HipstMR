@@ -3,6 +3,7 @@ package main
 import (
 	"HipstMR/fileserver"
 	"flag"
+	"fmt"
 )
 
 func main() {
@@ -16,5 +17,7 @@ func main() {
 	}
 
 	server := fileserver.NewServer(*address, *mnt)
-	panic(server.Run())
+	if err := server.Run(); err != nil {
+		fmt.Println("Error:", err)
+	}
 }

@@ -1,2 +1,3 @@
 *.chunk.*
-fileserver_test/data*
+cluster/data*
+cluster/bin

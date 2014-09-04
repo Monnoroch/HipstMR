@@ -16,6 +16,10 @@ func runTransaction(cmd fileserver.FileServerCommand, conn net.Conn, decoder *js
 		panic(err)
 	}
 
+	if cmd.Action == "kill" {
+		return
+	}
+
 	var cmdFrom fileserver.FileServerCommand
 	if err := decoder.Decode(&cmdFrom); err != nil {
 		panic(err)
@@ -41,6 +45,12 @@ func main() {
 		panic(err)
 	}
 	defer conn.Close()
+
+	conn1, err := net.Dial("tcp", "localhost:8011")
+	if err != nil {
+		panic(err)
+	}
+	defer conn1.Close()
 
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 
@@ -131,4 +141,18 @@ func main() {
 		},
 	}
 	runTransaction(cmdGet, conn, decoder)
+
+	cmdKill := fileserver.FileServerCommand{
+		Id:     uuid.New(),
+		Status: "started",
+		Action: "kill",
+	}
+	runTransaction(cmdKill, conn, decoder)
+
+	cmdKill = fileserver.FileServerCommand{
+		Id:     uuid.New(),
+		Status: "started",
+		Action: "kill",
+	}
+	runTransaction(cmdKill, conn1, decoder)
 }

@@ -9,7 +9,9 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"bytes"
 	"path"
+	"os/exec"
 )
 
 type FileServerCommand struct {
@@ -39,15 +41,89 @@ func (self *Server) Run() error {
 		return err
 	}
 
-	for {
-		conn, err := sock.Accept()
-		if err != nil {
-			return err
-		}
+	type connErrPair struct {
+		conn net.Conn
+		err error
+	}
 
-		go handle(self.mnt, conn)
+	conns := make(chan connErrPair)
+
+	go func() {
+		for {
+			conn, err := sock.Accept()
+			conns <- connErrPair{conn, err}
+		}
+	}()
+
+	stop := make(chan struct{})
+
+	for {
+		select {
+		case <-stop:
+			sock.Close()
+			return nil
+		case conn := <-conns:
+			if conn.err != nil {
+				return conn.err
+			}
+
+			go handle(stop, self.mnt, conn.conn)
+		}
 	}
 	return nil
+}
+
+func (self *Server) RunProcess(binaryPath string) (string, string, error) {
+	cmd := exec.Command(path.Clean(binaryPath), "-address", self.addr, "-mnt", self.mnt)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return string(stdout.Bytes()), string(stderr.Bytes()), err
+}
+
+func (self *Server) RunProcessDebug(binaryPath string) error {
+	sout, serr, err := self.RunProcess(binaryPath)
+	if serr != "" {
+		fmt.Println("~~~~~~Stderr:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+		fmt.Print(serr)
+	}
+	if sout != "" {
+		fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+		fmt.Print(sout)
+	}
+	if serr != "" || sout != "" {
+		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+	}
+	return err
+}
+
+func (self *Server) GoForever() {
+	go func() {
+		if err := self.Run(); err != nil {
+			fmt.Println("Error GoForever:", err)
+		}
+		self.GoForever()
+	}()
+}
+
+func (self *Server) GoProcessForever(binaryPath string) {
+	go func() {
+		if _, _, err := self.RunProcess(binaryPath); err != nil {
+			fmt.Println("Error GoProcessForever:", err)
+		}
+		self.GoProcessForever(binaryPath)
+	}()
+}
+
+func (self *Server) GoProcessDebugForever(binaryPath string) {
+	go func() {
+		if err := self.RunProcessDebug(binaryPath); err != nil {
+			fmt.Println("Error GoProcessDebugForever:", err)
+		}
+		self.GoProcessDebugForever(binaryPath)
+	}()
 }
 
 func NewServer(addr, mnt string) Server {
@@ -158,7 +234,7 @@ func failed(cmd FileServerCommand, conn net.Conn, origErr error) {
 	cmd.Params = nil
 	cmd.Payload = nil
 	if err := cmd.Send(conn); err != nil {
-		fmt.Println("Errors failed:", origErr, err)
+		fmt.Printf("Errors failed: {%v, %v}\n", origErr, err)
 	} else {
 		fmt.Println("Error failed:", origErr)
 	}
@@ -339,7 +415,7 @@ func get(cmd FileServerCommand, mnt string, conn net.Conn) error {
 }
 
 func onCommand(cmd FileServerCommand, mnt string, conn net.Conn) error {
-	fmt.Println("Received "+cmd.Action+" command:", cmd)
+	fmt.Println(mnt, "Received " + cmd.Action + " command:", cmd)
 	defer func() {
 		fmt.Println("Done with " + cmd.Action)
 	}()
@@ -359,33 +435,47 @@ func onCommand(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	}
 }
 
-func doHandle(mnt string, conn net.Conn) error {
+func doHandle(mnt string, conn net.Conn) (bool, error) {
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 	for {
 		var cmd FileServerCommand
 		err := decoder.Decode(&cmd)
 		if err == io.EOF {
-			return nil
+			return false, nil
 		}
 		if err != nil {
-			return err
+			return false, err
+		}
+
+		if cmd.Action == "kill" {
+			return true, nil
 		}
 
 		if err := onCommand(cmd, mnt, conn); err != nil {
 			failed(cmd, conn, err)
-			return nil
+			return false, nil
 		}
 	}
-	return nil
+	return false, nil
 }
 
-func handle(mnt string, conn net.Conn) {
-	defer func() {
-		if err := conn.Close(); err != nil {
-			fmt.Printf("Error handle: failed to close connection %v.\n", conn)
+func handle(stop chan struct{}, mnt string, conn net.Conn) {
+	killed, err := doHandle(mnt, conn)
+	if !killed {
+		if err != nil {
+			failed(FileServerCommand{}, conn, err)
 		}
-	}()
-	if err := doHandle(mnt, conn); err != nil {
-		failed(FileServerCommand{}, conn, err)
+	}
+
+	if err := conn.Close(); err != nil {
+		fmt.Printf("Error handle: failed to close connection %v.\n", err)
+	}
+
+	if killed {
+		fmt.Println(mnt, "Received kill command")
+		defer func() {
+			fmt.Println("Done with kill")
+		}()
+		stop <- struct{}{}
 	}
 }
