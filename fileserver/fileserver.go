@@ -66,7 +66,7 @@ func createFile(to string, data []byte) (rerr error) {
 }
 
 
-func copyFile(from, to string) (rerr error) {
+func copyFile(from, to string) error {
 	in, err := os.Open(from)
 	if err != nil {
 		return err
@@ -83,31 +83,27 @@ func copyFile(from, to string) (rerr error) {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			if rerr != nil {
-				rerr = doubleErr(rerr, err)
-			} else {
-				rerr = err
-			}
-		}
-	}()
 
-	_, rerr = io.Copy(out, in)
-	if rerr != nil {
-		return rerr
+	if _, err := io.Copy(out, in); err != nil {
+		if err1 := out.Close(); err1 != nil {
+			return doubleErr(err, err1)
+		}
+		return err
 	}
 
-	return nil
+	return out.Close()
 }
 
-func moveFile(from, to string) (rerr error) {
+func moveFile(from, to string) error {
 	base := path.Dir(to)
 	if err := os.MkdirAll(base, os.ModeDir|os.ModeTemporary|os.ModePerm); err != nil {
 		return err
 	}
 
 	if err := os.Rename(from, to); err != nil {
+		if err1 := os.RemoveAll(base); err1 != nil {
+			return doubleErr(err, err1)
+		}
 		return err
 	}
 
@@ -177,8 +173,6 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	decoder := json.NewDecoder(bufio.NewReader(connTo))
-
 	cmdTo := fileServerCommand{
 		Id:     cmd.Id,
 		Status: "started",
@@ -193,7 +187,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 	}
 
 	var cmdFrom fileServerCommand
-	if err := decoder.Decode(&cmdFrom); err != nil {
+	if err := json.NewDecoder(bufio.NewReader(connTo)).Decode(&cmdFrom); err != nil {
 		return err
 	}
 
@@ -239,8 +233,6 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	decoder := json.NewDecoder(bufio.NewReader(connTo))
-
 	cmdTo := fileServerCommand{
 		Id:     cmd.Id,
 		Status: "started",
@@ -254,45 +246,22 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
+	decoder := json.NewDecoder(bufio.NewReader(connTo))
+
 	var cmdFrom fileServerCommand
 	if err := decoder.Decode(&cmdFrom); err != nil {
 		return err
 	}
 
-	if cmdFrom.Status == "failed" {
-		Send(cmdFrom, conn)
-		return nil
-	}
-
-	// TODO!!!
-	if err := os.Remove(from); err != nil {
-		// fallback at remote server
-		cmdDel := fileServerCommand{
-			Id:     cmd.Id,
-			Status: "started",
-			Action: "del",
-			Params: map[string]string{
-				"from": to,
-			},
+	if cmdFrom.Status != "failed" {
+		if err := os.Remove(from); err != nil {
+			// we assume, os.Remove never fails, so no fallback on remote server =)
+			fmt.Println("Error:", err)
 		}
-
-		if err1 := cmdDel.Send(connTo); err1 != nil {
-			return doubleErr(err, err1)
-		}
-
-		var cmdFromDel fileServerCommand
-		if err1 := decoder.Decode(&cmdFromDel); err1 != nil {
-			return doubleErr(err, err1)
-		}
-
-		if cmdFromDel.Status == "failed" {
-			return doubleErr(err, errors.New(fmt.Sprintf("Follback delete transaction failed: %v", cmdFromDel)))
-		}
-
-		return err
 	}
 
 	Success(cmdFrom, conn)
+	return nil
 }
 
 func move(cmd fileServerCommand, mnt string, conn net.Conn) error {
