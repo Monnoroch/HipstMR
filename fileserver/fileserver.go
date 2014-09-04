@@ -21,7 +21,7 @@ func tripleErr(err, err1, err2 error) error {
 	return errors.New(fmt.Sprintf("Errors: {%v, %v, %v}", err, err1, err2))
 }
 
-func WriteAll(writer io.Writer, buf []byte) error {
+func writeAll(writer io.Writer, buf []byte) error {
 	for {
 		cnt := len(buf)
 		n, err := writer.Write(buf)
@@ -58,13 +58,12 @@ func createFile(to string, data []byte) (rerr error) {
 		}
 	}()
 
-	if err := WriteAll(out, data); err != nil {
+	if err := writeAll(out, data); err != nil {
 		return err
 	}
 
 	return nil
 }
-
 
 func copyFile(from, to string) error {
 	in, err := os.Open(from)
@@ -75,7 +74,7 @@ func copyFile(from, to string) error {
 	defer func() {
 		// non-fatal to transaction
 		if err := in.Close(); err != nil {
-			fmt.Println("Error:", err)
+			fmt.Println("Error copyFile:", err)
 		}
 	}()
 
@@ -123,30 +122,30 @@ func (self *fileServerCommand) Send(conn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	return WriteAll(conn, bytes)
+	return writeAll(conn, bytes)
 }
 
-func Failed(cmd fileServerCommand, conn net.Conn, origErr error) {
+func failed(cmd fileServerCommand, conn net.Conn, origErr error) {
 	cmd.Status = "failed"
 	cmd.Params = nil
 	cmd.Payload = nil
 	if err := cmd.Send(conn); err != nil {
-		fmt.Println("Errors:", origErr, err)
+		fmt.Println("Errors failed:", origErr, err)
 	} else {
-		fmt.Println("Error:", origErr)
+		fmt.Println("Error failed:", origErr)
 	}
 }
 
-func Send(cmd fileServerCommand, conn net.Conn) {
+func send(cmd fileServerCommand, conn net.Conn) {
 	if err := cmd.Send(conn); err != nil {
 		// just can't tell the client about the result
-		fmt.Println("Error:", err)
+		fmt.Println("Error send:", err)
 	}
 }
 
-func Success(cmd fileServerCommand, conn net.Conn) {
+func success(cmd fileServerCommand, conn net.Conn) {
 	cmd.Status = "finished"
-	Send(cmd, conn)
+	send(cmd, conn)
 }
 
 func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
@@ -158,7 +157,7 @@ func copyLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 		return err
 	}
 
-	Success(cmd, conn)
+	success(cmd, conn)
 	return nil
 }
 
@@ -191,7 +190,7 @@ func copyRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 		return err
 	}
 
-	Send(cmdFrom, conn)
+	send(cmdFrom, conn)
 	return nil
 }
 
@@ -218,7 +217,7 @@ func moveLocal(from, to string, cmd fileServerCommand, conn net.Conn) error {
 		return err
 	}
 
-	Success(cmd, conn)
+	success(cmd, conn)
 	return nil
 }
 
@@ -256,11 +255,11 @@ func moveRemote(from, to, addr string, cmd fileServerCommand, conn net.Conn) err
 	if cmdFrom.Status != "failed" {
 		if err := os.Remove(from); err != nil {
 			// we assume, os.Remove never fails, so no fallback on remote server =)
-			fmt.Println("Error:", err)
+			fmt.Println("Error moveRemote:", err)
 		}
 	}
 
-	Success(cmdFrom, conn)
+	success(cmdFrom, conn)
 	return nil
 }
 
@@ -284,7 +283,7 @@ func del(cmd fileServerCommand, mnt string, conn net.Conn) error {
 		return err
 	}
 
-	Success(cmd, conn)
+	success(cmd, conn)
 	return nil
 }
 
@@ -294,7 +293,7 @@ func put(cmd fileServerCommand, mnt string, conn net.Conn) error {
 		return err
 	}
 
-	Success(cmd, conn)
+	success(cmd, conn)
 	return nil
 }
 
@@ -307,12 +306,12 @@ func get(cmd fileServerCommand, mnt string, conn net.Conn) error {
 	}
 
 	cmd.Payload = file
-	Success(cmd, conn)
+	success(cmd, conn)
 	return nil
 }
 
 func onCommand(cmd fileServerCommand, mnt string, conn net.Conn) error {
-	fmt.Println("Received " + cmd.Action + " command:", cmd)
+	fmt.Println("Received "+cmd.Action+" command:", cmd)
 	defer func() {
 		fmt.Println("Done with " + cmd.Action)
 	}()
@@ -345,7 +344,7 @@ func doHandle(mnt string, conn net.Conn) error {
 		}
 
 		if err := onCommand(cmd, mnt, conn); err != nil {
-			Failed(cmd, conn, err)
+			failed(cmd, conn, err)
 			return nil
 		}
 	}
@@ -355,11 +354,11 @@ func doHandle(mnt string, conn net.Conn) error {
 func handle(mnt string, conn net.Conn) {
 	defer func() {
 		if err := conn.Close(); err != nil {
-			fmt.Printf("Error: failed to close connection %v.\n", conn)
+			fmt.Printf("Error handle: failed to close connection %v.\n", conn)
 		}
 	}()
 	if err := doHandle(mnt, conn); err != nil {
-		Failed(fileServerCommand{}, conn, err)
+		failed(fileServerCommand{}, conn, err)
 	}
 }
 
