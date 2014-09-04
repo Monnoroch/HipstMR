@@ -2,54 +2,21 @@ package main
 
 import (
 	"bufio"
+	"HipstMR/fileserver"
 	"code.google.com/p/go-uuid/uuid"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net"
 )
 
-func WriteAll(writer io.Writer, buf []byte) error {
-	for {
-		cnt := len(buf)
-		n, err := writer.Write(buf)
-		if err != nil {
-			return err
-		}
-
-		if n == cnt {
-			break
-		}
-
-		buf = buf[n:]
-	}
-	return nil
-}
-
-type fileServerCommand struct {
-	Id      string            `json"id"`
-	Status  string            `json"status"`
-	Action  string            `json"action"`
-	Params  map[string]string `json"params"`
-	Payload []byte            `json"payload"`
-}
-
-func (self *fileServerCommand) Send(conn net.Conn) error {
-	bytes, err := json.Marshal(self)
-	if err != nil {
-		return err
-	}
-	return WriteAll(conn, bytes)
-}
-
-func runTransaction(cmd fileServerCommand, conn net.Conn, decoder *json.Decoder) {
+func runTransaction(cmd fileserver.FileServerCommand, conn net.Conn, decoder *json.Decoder) {
 	fmt.Println(cmd.Action)
 	if err := cmd.Send(conn); err != nil {
 		panic(err)
 	}
 
-	var cmdFrom fileServerCommand
+	var cmdFrom fileserver.FileServerCommand
 	if err := decoder.Decode(&cmdFrom); err != nil {
 		panic(err)
 	}
@@ -77,7 +44,7 @@ func main() {
 
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 
-	cmdPut := fileServerCommand{
+	cmdPut := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "put",
@@ -88,7 +55,7 @@ func main() {
 	}
 	runTransaction(cmdPut, conn, decoder)
 
-	cmdCopyLocal := fileServerCommand{
+	cmdCopyLocal := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "copy",
@@ -99,7 +66,7 @@ func main() {
 	}
 	runTransaction(cmdCopyLocal, conn, decoder)
 
-	cmdCopyLocal = fileServerCommand{
+	cmdCopyLocal = fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "copy",
@@ -110,7 +77,18 @@ func main() {
 	}
 	runTransaction(cmdCopyLocal, conn, decoder)
 
-	cmdDel := fileServerCommand{
+	cmdMoveLocal := fileserver.FileServerCommand{
+		Id:     uuid.New(),
+		Status: "started",
+		Action: "move",
+		Params: map[string]string{
+			"from": "file3.txt",
+			"to":   "file4.txt",
+		},
+	}
+	runTransaction(cmdMoveLocal, conn, decoder)
+
+	cmdDel := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "del",
@@ -120,7 +98,7 @@ func main() {
 	}
 	runTransaction(cmdDel, conn, decoder)
 
-	cmdCopy := fileServerCommand{
+	cmdCopy := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "copy",
@@ -132,19 +110,19 @@ func main() {
 	}
 	runTransaction(cmdCopy, conn, decoder)
 
-	cmdMove := fileServerCommand{
+	cmdMove := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "move",
 		Params: map[string]string{
-			"from": "file3.txt",
-			"to":   "file3.txt",
+			"from": "file4.txt",
+			"to":   "file4.txt",
 			"addr": "localhost:8011",
 		},
 	}
 	runTransaction(cmdMove, conn, decoder)
 
-	cmdGet := fileServerCommand{
+	cmdGet := fileserver.FileServerCommand{
 		Id:     uuid.New(),
 		Status: "started",
 		Action: "get",
