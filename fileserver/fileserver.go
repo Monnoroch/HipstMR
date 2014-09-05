@@ -14,6 +14,7 @@ import (
 	"os/exec"
 )
 
+
 type FileServerCommand struct {
 	Id      string            `json"id"`
 	Status  string            `json"status"`
@@ -52,6 +53,7 @@ func (self *Server) Run() error {
 		for {
 			conn, err := sock.Accept()
 			conns <- connErrPair{conn, err}
+
 			if err != nil {
 				return
 			}
@@ -64,7 +66,6 @@ func (self *Server) Run() error {
 		select {
 		case <-stop:
 			sock.Close()
-			return nil
 		case conn := <-conns:
 			if conn.err != nil {
 				return conn.err
@@ -77,11 +78,12 @@ func (self *Server) Run() error {
 	return nil
 }
 
-func (self *Server) Go() {
+func (self *Server) Go(sig chan struct{}) {
 	go func() {
 		if err := self.Run(); err != nil {
 			fmt.Println("Error Go:", err)
 		}
+		sig <- struct{}{}
 	}()
 }
 
@@ -95,11 +97,12 @@ func (self *Server) RunProcess(binaryPath string) (string, string, error) {
 	return string(stdout.Bytes()), string(stderr.Bytes()), err
 }
 
-func (self *Server) GoProcess(binaryPath string) {
+func (self *Server) GoProcess(binaryPath string, sig chan struct{}) {
 	go func() {
 		if _, _, err := self.RunProcess(binaryPath); err != nil {
 			fmt.Println("Error GoProcess:", err)
 		}
+		sig <- struct{}{}
 	}()
 }
 
@@ -119,11 +122,12 @@ func (self *Server) RunProcessDebug(binaryPath string) error {
 	return err
 }
 
-func (self *Server) GoProcessDebug(binaryPath string) {
+func (self *Server) GoProcessDebug(binaryPath string, sig chan struct{}) {
 	go func() {
 		if err := self.RunProcessDebug(binaryPath); err != nil {
 			fmt.Println("Error GoProcessDebug:", err)
 		}
+		sig <- struct{}{}
 	}()
 }
 
@@ -303,6 +307,11 @@ func copyRemote(from, to, addr string, cmd FileServerCommand, conn net.Conn) err
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := connTo.Close(); err != nil {
+			fmt.Println("Error copyRemote:", err)
+		}
+	}()
 
 	cmdTo := FileServerCommand{
 		Id:     cmd.Id,
@@ -363,6 +372,11 @@ func moveRemote(from, to, addr string, cmd FileServerCommand, conn net.Conn) err
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := connTo.Close(); err != nil {
+			fmt.Println("Error copyRemote:", err)
+		}
+	}()
 
 	cmdTo := FileServerCommand{
 		Id:     cmd.Id,
@@ -464,6 +478,8 @@ func onCommand(cmd FileServerCommand, mnt string, conn net.Conn) error {
 }
 
 func doHandle(mnt string, conn net.Conn) (bool, error) {
+	fmt.Println("Started doHandle", mnt)
+	defer fmt.Println("Done doHandle", mnt)
 	decoder := json.NewDecoder(bufio.NewReader(conn))
 	for {
 		var cmd FileServerCommand
@@ -489,9 +505,11 @@ func doHandle(mnt string, conn net.Conn) (bool, error) {
 
 func handle(stop chan struct{}, mnt string, conn net.Conn) {
 	killed, err := doHandle(mnt, conn)
-	if !killed {
-		if err != nil {
+	if err != nil {
+		if !killed {
 			failed(FileServerCommand{}, conn, err)
+		} else {
+			fmt.Println("Error handle:", err)
 		}
 	}
 
@@ -504,6 +522,7 @@ func handle(stop chan struct{}, mnt string, conn net.Conn) {
 		defer func() {
 			fmt.Println("Done with kill")
 		}()
+
 		stop <- struct{}{}
 	}
 }

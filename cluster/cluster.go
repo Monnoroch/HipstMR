@@ -27,30 +27,59 @@ func runFsRec(fs *fileserver.Server) {
 	go runFsRec(fs)
 }
 
-func (self *Cluster) Run(forever bool) {
+func (self *Cluster) Run() {
+	sig := make(chan struct{})
+	count := 0
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			if forever {
-				v.GoForever()
-			} else {
-				v.Go()
-			}
+			v.Go(sig)
+			count++
+		}
+	}
+	for _ = range sig {
+		count--
+		if count == 0 {
+			break
+		}
+	}
+}
+
+func (self *Cluster) RunForever() {
+	for _, m := range self.machines {
+		for _, fs := range m.fileservers {
+			v := fs
+			v.GoForever()
 		}
 	}
 	select{}
 }
 
-func (self *Cluster) RunMultiProc(forever bool, binaryPath string) {
+func (self *Cluster) RunMultiProc(binaryPath string) {
+	binaryPath = path.Clean(binaryPath)
+	sig := make(chan struct{})
+	count := 0
+	for _, m := range self.machines {
+		for _, fs := range m.fileservers {
+			v := fs
+			v.GoProcessDebug(binaryPath, sig)
+			count++
+		}
+	}
+	for _ = range sig {
+		count--
+		if count == 0 {
+			break
+		}
+	}
+}
+
+func (self *Cluster) RunMultiProcForever(binaryPath string) {
 	binaryPath = path.Clean(binaryPath)
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			if forever {
-				v.GoProcessDebugForever(binaryPath)
-			} else {
-				v.GoProcessDebug(binaryPath)
-			}
+			v.GoProcessDebugForever(binaryPath)
 		}
 	}
 	select{}
@@ -137,9 +166,17 @@ func main() {
 			panic(err)
 		}
 
-		cluster.RunMultiProc(*forever, path.Join(p, *fsbinary))
+		if *forever {
+			cluster.RunMultiProcForever(path.Join(p, *fsbinary))
+		} else {
+			cluster.RunMultiProc(path.Join(p, *fsbinary))
+		}
 	} else {
-		cluster.Run(*forever)
+		if *forever {
+			cluster.RunForever()
+		} else {
+			cluster.Run()
+		}
 	}
 }
 
