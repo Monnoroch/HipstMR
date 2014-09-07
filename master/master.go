@@ -2,6 +2,7 @@ package master
 
 import(
 	"net"
+	"fmt"
 )
 
 type Master struct {
@@ -23,6 +24,25 @@ func (self *Master) Run() error {
 		go self.handle(conn)
 	}
 	return nil
+}
+
+func (self *Master) Go(sig chan struct{}) {
+	go func() {
+		if err := self.Run(); err != nil {
+			fmt.Println("Error Master.Go:", err)
+		}
+		sig <- struct{}{}
+	}()
+}
+
+
+func (self *Master) GoForever() {
+	go func() {
+		if err := self.Run(); err != nil {
+			fmt.Println("Error Master.GoForever:", err)
+		}
+		self.GoForever()
+	}()
 }
 
 func (self *Master) handle(conn net.Conn) {

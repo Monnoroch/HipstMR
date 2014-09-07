@@ -7,12 +7,14 @@ import(
 	"io/ioutil"
 	"encoding/json"
 	"HipstMR/fileserver"
+	"HipstMR/master"
 	"bitbucket.org/kardianos/osext"
 )
 
 type machine struct {
 	addr string
 	fileservers []fileserver.Server
+	masters []master.Master
 }
 
 type Cluster struct {
@@ -36,6 +38,11 @@ func (self *Cluster) Run() {
 			v.Go(sig)
 			count++
 		}
+		for _, mas := range m.masters {
+			v := mas
+			v.Go(sig)
+			count++
+		}
 	}
 	for _ = range sig {
 		count--
@@ -49,6 +56,10 @@ func (self *Cluster) RunForever() {
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
+			v.GoForever()
+		}
+		for _, mas := range m.masters {
+			v := mas
 			v.GoForever()
 		}
 	}
@@ -99,10 +110,15 @@ func NewCluster(file string) (Cluster, error) {
 		mn := machine{
 			addr: m.Addr,
 			fileservers: make([]fileserver.Server, len(m.Fileservers)),
+			masters: make([]master.Master, len(m.Masters)),
 		}
 
 		for j, f := range m.Fileservers {
 			mn.fileservers[j] = fileserver.NewServer(":" + f.Port, f.Mnt)
+		}
+
+		for j, f := range m.Masters {
+			mn.masters[j] = master.NewMaster(":" + f.Port)
 		}
 
 		res.machines[i] = mn
@@ -118,10 +134,14 @@ type fileserverCfg struct {
 	Mnt string `json:"mnt"`
 }
 
+type masterCfg struct {
+	Port string `json:"port"`
+}
 
 type machineCfg struct {
 	Addr string `json:"address"`
 	Fileservers []fileserverCfg `json:"fileservers"`
+	Masters []masterCfg `json:"masters"`
 }
 
 type config []machineCfg
