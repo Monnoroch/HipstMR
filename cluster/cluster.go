@@ -8,6 +8,7 @@ import(
 	"encoding/json"
 	"HipstMR/fileserver"
 	"HipstMR/master"
+	"HipstMR/utils"
 	"bitbucket.org/kardianos/osext"
 )
 
@@ -22,25 +23,18 @@ type Cluster struct {
 	cfg config
 }
 
-func runFsRec(fs *fileserver.Server) {
-	if err := fs.Run(); err != nil {
-		fmt.Println("Error:", err)
-	}
-	go runFsRec(fs)
-}
-
 func (self *Cluster) Run() {
 	sig := make(chan struct{})
 	count := 0
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.Go(sig)
+			utils.Go(&v, sig)
 			count++
 		}
 		for _, mas := range m.masters {
 			v := mas
-			v.Go(sig)
+			utils.Go(&v, sig)
 			count++
 		}
 	}
@@ -56,24 +50,30 @@ func (self *Cluster) RunForever() {
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.GoForever()
+			utils.GoForever(&v)
 		}
 		for _, mas := range m.masters {
 			v := mas
-			v.GoForever()
+			utils.GoForever(&v)
 		}
 	}
 	select{}
 }
 
-func (self *Cluster) RunMultiProc(binaryPath string) {
-	binaryPath = path.Clean(binaryPath)
+func (self *Cluster) RunMultiProc(binaryFsPath, binaryMasterPath string) {
+	binaryFsPath = path.Clean(binaryFsPath)
+	binaryMasterPath = path.Clean(binaryMasterPath)
 	sig := make(chan struct{})
 	count := 0
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.GoProcessDebug(binaryPath, sig)
+			utils.GoProcessDebug(&v, binaryFsPath, sig)
+			count++
+		}
+		for _, mas := range m.fileservers {
+			v := mas
+			utils.GoProcessDebug(&v, binaryMasterPath, sig)
 			count++
 		}
 	}
@@ -85,12 +85,17 @@ func (self *Cluster) RunMultiProc(binaryPath string) {
 	}
 }
 
-func (self *Cluster) RunMultiProcForever(binaryPath string) {
-	binaryPath = path.Clean(binaryPath)
+func (self *Cluster) RunMultiProcForever(binaryFsPath, binaryMasterPath string) {
+	binaryFsPath = path.Clean(binaryFsPath)
+	binaryMasterPath = path.Clean(binaryMasterPath)
 	for _, m := range self.machines {
 		for _, fs := range m.fileservers {
 			v := fs
-			v.GoProcessDebugForever(binaryPath)
+			utils.GoProcessDebugForever(&v, binaryFsPath)
+		}
+		for _, mas := range m.fileservers {
+			v := mas
+			utils.GoProcessDebugForever(&v, binaryMasterPath)
 		}
 	}
 	select{}
@@ -165,10 +170,11 @@ func main() {
 	help := flag.Bool("help", false, "print this help")
 	cfgFile := flag.String("config", "", "config file path")
 	multiprocess := flag.Bool("multiprocess", false, "run in multiple processes (need to specify fsbinary)")
-	fsbinary := flag.String("fsbinary", "", "fileserver binary for ")
+	fsbinary := flag.String("fsbinary", "", "fileserver binary")
+	masterbinary := flag.String("masterbinary", "", "master binary")
 	forever := flag.Bool("forever", false, "restart failed jobs")
 	flag.Parse()
-	if *help || *cfgFile == "" || (*multiprocess && *fsbinary == "") {
+	if *help || *cfgFile == "" || (*multiprocess && *fsbinary == "") || (*multiprocess && *masterbinary == "") {
 		flag.PrintDefaults()
 		return
 	}
@@ -187,9 +193,9 @@ func main() {
 		}
 
 		if *forever {
-			cluster.RunMultiProcForever(path.Join(p, *fsbinary))
+			cluster.RunMultiProcForever(path.Join(p, *fsbinary), path.Join(p, *masterbinary))
 		} else {
-			cluster.RunMultiProc(path.Join(p, *fsbinary))
+			cluster.RunMultiProc(path.Join(p, *fsbinary), path.Join(p, *masterbinary))
 		}
 	} else {
 		if *forever {

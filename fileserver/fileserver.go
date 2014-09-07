@@ -78,15 +78,6 @@ func (self *Server) Run() error {
 	return nil
 }
 
-func (self *Server) Go(sig chan struct{}) {
-	go func() {
-		if err := self.Run(); err != nil {
-			fmt.Println("Error Go:", err)
-		}
-		sig <- struct{}{}
-	}()
-}
-
 func (self *Server) RunProcess(binaryPath string) (string, string, error) {
 	cmd := exec.Command(path.Clean(binaryPath), "-address", self.addr, "-mnt", self.mnt)
 	var stdout bytes.Buffer
@@ -95,67 +86,6 @@ func (self *Server) RunProcess(binaryPath string) (string, string, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return string(stdout.Bytes()), string(stderr.Bytes()), err
-}
-
-func (self *Server) GoProcess(binaryPath string, sig chan struct{}) {
-	go func() {
-		if _, _, err := self.RunProcess(binaryPath); err != nil {
-			fmt.Println("Error GoProcess:", err)
-		}
-		sig <- struct{}{}
-	}()
-}
-
-func (self *Server) RunProcessDebug(binaryPath string) error {
-	sout, serr, err := self.RunProcess(binaryPath)
-	if serr != "" {
-		fmt.Println("~~~~~~Stderr:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		fmt.Print(serr)
-	}
-	if sout != "" {
-		fmt.Println("~~~~~~Stdout:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		fmt.Print(sout)
-	}
-	if serr != "" || sout != "" {
-		fmt.Println("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-	}
-	return err
-}
-
-func (self *Server) GoProcessDebug(binaryPath string, sig chan struct{}) {
-	go func() {
-		if err := self.RunProcessDebug(binaryPath); err != nil {
-			fmt.Println("Error GoProcessDebug:", err)
-		}
-		sig <- struct{}{}
-	}()
-}
-
-func (self *Server) GoForever() {
-	go func() {
-		if err := self.Run(); err != nil {
-			fmt.Println("Error GoForever:", err)
-		}
-		self.GoForever()
-	}()
-}
-
-func (self *Server) GoProcessForever(binaryPath string) {
-	go func() {
-		if _, _, err := self.RunProcess(binaryPath); err != nil {
-			fmt.Println("Error GoProcessForever:", err)
-		}
-		self.GoProcessForever(binaryPath)
-	}()
-}
-
-func (self *Server) GoProcessDebugForever(binaryPath string) {
-	go func() {
-		if err := self.RunProcessDebug(binaryPath); err != nil {
-			fmt.Println("Error GoProcessDebugForever:", err)
-		}
-		self.GoProcessDebugForever(binaryPath)
-	}()
 }
 
 func NewServer(addr, mnt string) Server {

@@ -1,3 +1,5 @@
 *.chunk.*
 cluster/data*
-cluster/bin
+cluster/fileserver
+cluster/master
+cluster/cluster

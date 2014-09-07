@@ -15,8 +15,8 @@ func main() {
 		return
 	}
 
-	server := master.NewMaster(*address)
-	if err := server.Run(); err != nil {
+	mas := master.NewMaster(*address)
+	if err := mas.Run(); err != nil {
 		fmt.Println("Error:", err)
 	}
 }
