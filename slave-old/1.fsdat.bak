@@ -1,0 +1,65 @@
+{
+	"098a0cbc-2f0e-4f44-a6ea-62f63dfc22f6": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "tbl1",
+				"num": 1
+			}
+		]
+	},
+	"14f8f788-566c-4746-a01c-09c0aaeb3ccd": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "tbl2",
+				"num": 1
+			}
+		]
+	},
+	"8f4ced43-cc7a-4856-8065-1e9d4aabb6bb": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "test/tbl1",
+				"num": 2
+			}
+		]
+	},
+	"b3e4aa84-fe4e-467f-bc41-2915018c8107": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "tbl1",
+				"num": 2
+			}
+		]
+	},
+	"df141259-8299-4021-98e7-880253bf6644": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "tbl2",
+				"num": 2
+			}
+		]
+	},
+	"e37a308d-2082-424e-baef-6cca5f8123dc": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "tbl2",
+				"num": 3
+			}
+		]
+	},
+	"e7c915bb-1bab-402f-b123-8834f5e8d5f7": {
+		"size": 0,
+		"tags": [
+			{
+				"tag": "test/tbl1",
+				"num": 1
+			}
+		]
+	}
+}
