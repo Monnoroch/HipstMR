@@ -16,10 +16,6 @@ func runTransaction(cmd fileserver.FileServerCommand, conn net.Conn, decoder *js
 		panic(err)
 	}
 
-	if cmd.Action == "kill" {
-		return
-	}
-
 	var cmdFrom fileserver.FileServerCommand
 	if err := decoder.Decode(&cmdFrom); err != nil {
 		panic(err)
@@ -141,18 +137,4 @@ func main() {
 		},
 	}
 	runTransaction(cmdGet, conn, decoder)
-
-	cmdKill := fileserver.FileServerCommand{
-		Id:     uuid.New(),
-		Status: "started",
-		Action: "kill",
-	}
-	runTransaction(cmdKill, conn, decoder)
-
-	cmdKill = fileserver.FileServerCommand{
-		Id:     uuid.New(),
-		Status: "started",
-		Action: "kill",
-	}
-	runTransaction(cmdKill, conn1, decoder)
 }

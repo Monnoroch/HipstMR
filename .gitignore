@@ -3,3 +3,4 @@ cluster/data*
 cluster/fileserver
 cluster/master
 cluster/cluster
+cluster/fs-slave

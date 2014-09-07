@@ -9,18 +9,18 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"bytes"
 	"path"
 	"os/exec"
+	"HipstMR/utils"
 )
 
 
 type FileServerCommand struct {
-	Id      string            `json"id"`
-	Status  string            `json"status"`
-	Action  string            `json"action"`
-	Params  map[string]string `json"params"`
-	Payload []byte            `json"payload"`
+	Id      string            `json:"id"`
+	Status  string            `json:"status"`
+	Action  string            `json:"action"`
+	Params  map[string]string `json:"params"`
+	Payload []byte            `json:"payload"`
 }
 
 func (self *FileServerCommand) Send(conn net.Conn) error {
@@ -28,7 +28,7 @@ func (self *FileServerCommand) Send(conn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	return writeAll(conn, bytes)
+	return utils.WriteAll(conn, bytes)
 }
 
 type Server struct {
@@ -36,56 +36,35 @@ type Server struct {
 	mnt  string
 }
 
-func (self *Server) Run() error {
+func (self *Server) Run() (rerr error) {
 	sock, err := net.Listen("tcp", self.addr)
 	if err != nil {
 		return err
 	}
-
-	type connErrPair struct {
-		conn net.Conn
-		err error
-	}
-
-	conns := make(chan connErrPair)
-
-	go func() {
-		for {
-			conn, err := sock.Accept()
-			conns <- connErrPair{conn, err}
-
-			if err != nil {
-				return
+	defer func() {
+		if err := sock.Close(); err != nil {
+			if rerr != nil {
+				rerr = doubleErr(rerr, err)
+			} else {
+				rerr = err
 			}
 		}
 	}()
 
-	stop := make(chan struct{})
-
 	for {
-		select {
-		case <-stop:
-			sock.Close()
-		case conn := <-conns:
-			if conn.err != nil {
-				return conn.err
-			}
-
-			go handle(stop, self.mnt, conn.conn)
+		conn, err := sock.Accept()
+		if err != nil {
+			return err
 		}
+
+		go handle(self.mnt, conn)
 	}
 
 	return nil
 }
 
 func (self *Server) RunProcess(binaryPath string) (string, string, error) {
-	cmd := exec.Command(path.Clean(binaryPath), "-address", self.addr, "-mnt", self.mnt)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return string(stdout.Bytes()), string(stderr.Bytes()), err
+	return utils.ExecCmd(exec.Command(path.Clean(binaryPath), "-address", self.addr, "-mnt", self.mnt))
 }
 
 func NewServer(addr, mnt string) Server {
@@ -101,23 +80,6 @@ func doubleErr(err, err1 error) error {
 
 func tripleErr(err, err1, err2 error) error {
 	return errors.New(fmt.Sprintf("Errors: {%v, %v, %v}", err, err1, err2))
-}
-
-func writeAll(writer io.Writer, buf []byte) error {
-	for {
-		cnt := len(buf)
-		n, err := writer.Write(buf)
-		if err != nil {
-			return err
-		}
-
-		if n == cnt {
-			break
-		}
-
-		buf = buf[n:]
-	}
-	return nil
 }
 
 func createFile(to string, data []byte) (rerr error) {
@@ -140,7 +102,7 @@ func createFile(to string, data []byte) (rerr error) {
 		}
 	}()
 
-	if err := writeAll(out, data); err != nil {
+	if err := utils.WriteAll(out, data); err != nil {
 		return err
 	}
 
@@ -407,7 +369,7 @@ func onCommand(cmd FileServerCommand, mnt string, conn net.Conn) error {
 	}
 }
 
-func doHandle(mnt string, conn net.Conn) (bool, error) {
+func doHandle(mnt string, conn net.Conn) error {
 	fmt.Println("Started doHandle", mnt)
 	defer fmt.Println("Done doHandle", mnt)
 	decoder := json.NewDecoder(bufio.NewReader(conn))
@@ -415,44 +377,27 @@ func doHandle(mnt string, conn net.Conn) (bool, error) {
 		var cmd FileServerCommand
 		err := decoder.Decode(&cmd)
 		if err == io.EOF {
-			return false, nil
+			return nil
 		}
 		if err != nil {
-			return false, err
-		}
-
-		if cmd.Action == "kill" {
-			return true, nil
+			return err
 		}
 
 		if err := onCommand(cmd, mnt, conn); err != nil {
 			failed(cmd, conn, err)
-			return false, nil
+			return nil
 		}
 	}
-	return false, nil
+	return nil
 }
 
-func handle(stop chan struct{}, mnt string, conn net.Conn) {
-	killed, err := doHandle(mnt, conn)
+func handle(mnt string, conn net.Conn) {
+	err := doHandle(mnt, conn)
 	if err != nil {
-		if !killed {
-			failed(FileServerCommand{}, conn, err)
-		} else {
-			fmt.Println("Error handle:", err)
-		}
+		failed(FileServerCommand{}, conn, err)
 	}
 
 	if err := conn.Close(); err != nil {
 		fmt.Printf("Error handle: failed to close connection %v.\n", err)
-	}
-
-	if killed {
-		fmt.Println(mnt, "Received kill command")
-		defer func() {
-			fmt.Println("Done with kill")
-		}()
-
-		stop <- struct{}{}
 	}
 }

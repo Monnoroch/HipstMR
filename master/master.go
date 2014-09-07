@@ -3,12 +3,14 @@ package master
 import(
 	"net"
 	"path"
-	"bytes"
 	"os/exec"
+	"HipstMR/utils"
+	// "HipstMR/lib/go/hipstmr"
 )
 
 type Master struct {
 	addr string
+	cfg utils.Config
 }
 
 func (self *Master) Run() error {
@@ -29,21 +31,17 @@ func (self *Master) Run() error {
 }
 
 func (self *Master) RunProcess(binaryPath string) (string, string, error) {
-	cmd := exec.Command(path.Clean(binaryPath), "-address", self.addr)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return string(stdout.Bytes()), string(stderr.Bytes()), err
+	return utils.ExecCmd(exec.Command(path.Clean(binaryPath), "-address", self.addr))
 }
 
 func (self *Master) handle(conn net.Conn) {
-
+	defer conn.Close()
 }
 
-func NewMaster(addr string) Master {
+
+func NewMaster(addr string, cfg utils.Config) Master {
 	return Master{
 		addr: addr,
+		cfg: cfg,
 	}
 }

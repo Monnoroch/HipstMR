@@ -4,39 +4,41 @@ import(
 	"flag"
 	"fmt"
 	"path"
-	"io/ioutil"
-	"encoding/json"
+	"errors"
 	"HipstMR/fileserver"
+	"HipstMR/filesystem"
 	"HipstMR/master"
 	"HipstMR/utils"
 	"bitbucket.org/kardianos/osext"
 )
 
-type machine struct {
+type ClusterNode struct {
 	addr string
+	path string
 	fileservers []fileserver.Server
+	fsSlaves []filesystem.Slave
 	masters []master.Master
+	cfg utils.Config
+	nodeCfg *utils.MachineCfg
 }
 
-type Cluster struct {
-	machines []machine
-	cfg config
-}
-
-func (self *Cluster) Run() {
+func (self *ClusterNode) Run() {
 	sig := make(chan struct{})
 	count := 0
-	for _, m := range self.machines {
-		for _, fs := range m.fileservers {
-			v := fs
-			utils.Go(&v, sig)
-			count++
-		}
-		for _, mas := range m.masters {
-			v := mas
-			utils.Go(&v, sig)
-			count++
-		}
+	for _, fs := range self.fileservers {
+		v := fs
+		utils.Go(&v, sig)
+		count++
+	}
+	for _, fs := range self.fsSlaves {
+		v := fs
+		utils.Go(&v, sig)
+		count++
+	}
+	for _, mas := range self.masters {
+		v := mas
+		utils.Go(&v, sig)
+		count++
 	}
 	for _ = range sig {
 		count--
@@ -46,36 +48,42 @@ func (self *Cluster) Run() {
 	}
 }
 
-func (self *Cluster) RunForever() {
-	for _, m := range self.machines {
-		for _, fs := range m.fileservers {
-			v := fs
-			utils.GoForever(&v)
-		}
-		for _, mas := range m.masters {
-			v := mas
-			utils.GoForever(&v)
-		}
+func (self *ClusterNode) RunForever() {
+	for _, fs := range self.fileservers {
+		v := fs
+		utils.GoForever(&v)
+	}
+	for _, fs := range self.fsSlaves {
+		v := fs
+		utils.GoForever(&v)
+	}
+	for _, mas := range self.masters {
+		v := mas
+		utils.GoForever(&v)
 	}
 	select{}
 }
 
-func (self *Cluster) RunMultiProc(binaryFsPath, binaryMasterPath string) {
-	binaryFsPath = path.Clean(binaryFsPath)
-	binaryMasterPath = path.Clean(binaryMasterPath)
+func (self *ClusterNode) RunMultiProc() {
+	binaryFsPath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.Fileserver))
+	binaryFsSlavePath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.FilesystemSlave))
+	binaryMasterPath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.Master))
 	sig := make(chan struct{})
 	count := 0
-	for _, m := range self.machines {
-		for _, fs := range m.fileservers {
-			v := fs
-			utils.GoProcessDebug(&v, binaryFsPath, sig)
-			count++
-		}
-		for _, mas := range m.fileservers {
-			v := mas
-			utils.GoProcessDebug(&v, binaryMasterPath, sig)
-			count++
-		}
+	for _, fs := range self.fileservers {
+		v := fs
+		utils.GoProcessDebug(&v, binaryFsPath, sig)
+		count++
+	}
+	for _, fs := range self.fsSlaves {
+		v := fs
+		utils.GoProcessDebug(&v, binaryFsSlavePath, sig)
+		count++
+	}
+	for _, mas := range self.masters {
+		v := mas
+		utils.GoProcessDebug(&v, binaryMasterPath, sig)
+		count++
 	}
 	for _ = range sig {
 		count--
@@ -85,123 +93,98 @@ func (self *Cluster) RunMultiProc(binaryFsPath, binaryMasterPath string) {
 	}
 }
 
-func (self *Cluster) RunMultiProcForever(binaryFsPath, binaryMasterPath string) {
-	binaryFsPath = path.Clean(binaryFsPath)
-	binaryMasterPath = path.Clean(binaryMasterPath)
-	for _, m := range self.machines {
-		for _, fs := range m.fileservers {
-			v := fs
-			utils.GoProcessDebugForever(&v, binaryFsPath)
-		}
-		for _, mas := range m.fileservers {
-			v := mas
-			utils.GoProcessDebugForever(&v, binaryMasterPath)
-		}
+func (self *ClusterNode) RunMultiProcForever() {
+	binaryFsPath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.Fileserver))
+	binaryFsSlavePath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.FilesystemSlave))
+	binaryMasterPath := path.Clean(path.Join(self.path, self.nodeCfg.Binaries.Master))
+	for _, fs := range self.fileservers {
+		v := fs
+		utils.GoProcessDebugForever(&v, binaryFsPath)
+	}
+	for _, fs := range self.fsSlaves {
+		v := fs
+		utils.GoProcessDebugForever(&v, binaryFsSlavePath)
+	}
+	for _, mas := range self.masters {
+		v := mas
+		utils.GoProcessDebugForever(&v, binaryMasterPath)
 	}
 	select{}
 }
 
-func NewCluster(file string) (Cluster, error) {
-	cfg, err := newConfig(file)
+func NewClusterNode(file, name string) (ClusterNode, error) {
+	binPath, err := osext.ExecutableFolder()
 	if err != nil {
-		return Cluster{}, err
+		return ClusterNode{}, err
 	}
 
-	res := Cluster{
+	cfg, err := utils.NewConfig(file)
+	if err != nil {
+		return ClusterNode{}, err
+	}
+
+	nodeCfg := cfg.GetMachineCfg(name)
+	if nodeCfg == nil {
+		return ClusterNode{}, errors.New("No machine with name \"" + name + "\".")
+	}
+
+	cfgFullPath := path.Clean(path.Join(binPath, file))
+
+	res := ClusterNode{
+		addr: nodeCfg.Addr,
+		path: binPath,
 		cfg: cfg,
-		machines: make([]machine, len(cfg)),
+		nodeCfg: nodeCfg,
+		fileservers: make([]fileserver.Server, len(nodeCfg.Fileservers)),
+		masters: make([]master.Master, len(nodeCfg.Masters)),
+		fsSlaves: make([]filesystem.Slave, len(nodeCfg.FilesystemSlaves)),
 	}
-	for i, m := range cfg {
-		mn := machine{
-			addr: m.Addr,
-			fileservers: make([]fileserver.Server, len(m.Fileservers)),
-			masters: make([]master.Master, len(m.Masters)),
-		}
 
-		for j, f := range m.Fileservers {
-			mn.fileservers[j] = fileserver.NewServer(":" + f.Port, f.Mnt)
-		}
+	for j, f := range nodeCfg.Fileservers {
+		res.fileservers[j] = fileserver.NewServer(":" + f.Port, f.Mnt)
+	}
 
-		for j, f := range m.Masters {
-			mn.masters[j] = master.NewMaster(":" + f.Port)
-		}
+	for j, f := range nodeCfg.Masters {
+		res.masters[j] = master.NewMaster(":" + f.Port, res.cfg)
+	}
 
-		res.machines[i] = mn
+	for j, f := range nodeCfg.FilesystemSlaves {
+		res.fsSlaves[j] = filesystem.NewSlave(":" + f.Port, nodeCfg.Addr, f.Mnt, cfgFullPath, *nodeCfg)
 	}
 
 	return res, nil
 }
 
-
-
-type fileserverCfg struct {
-	Port string `json:"port"`
-	Mnt string `json:"mnt"`
-}
-
-type masterCfg struct {
-	Port string `json:"port"`
-}
-
-type machineCfg struct {
-	Addr string `json:"address"`
-	Fileservers []fileserverCfg `json:"fileservers"`
-	Masters []masterCfg `json:"masters"`
-}
-
-type config []machineCfg
-
-func newConfig(file string) (config, error) {
-	bs, err := ioutil.ReadFile(file)
-	if err != nil {
-		return config{}, err
-	}
-
-	var cfg config
-	if err := json.Unmarshal(bs, &cfg); err != nil {
-		return config{}, err
-	}
-
-	return cfg, nil
-}
-
-
 func main() {
 	help := flag.Bool("help", false, "print this help")
 	cfgFile := flag.String("config", "", "config file path")
+	machine := flag.String("machine", "", "current machine name")
 	multiprocess := flag.Bool("multiprocess", false, "run in multiple processes (need to specify fsbinary)")
-	fsbinary := flag.String("fsbinary", "", "fileserver binary")
-	masterbinary := flag.String("masterbinary", "", "master binary")
 	forever := flag.Bool("forever", false, "restart failed jobs")
 	flag.Parse()
-	if *help || *cfgFile == "" || (*multiprocess && *fsbinary == "") || (*multiprocess && *masterbinary == "") {
+	if *help || *cfgFile == "" || *machine == "" {
 		flag.PrintDefaults()
 		return
 	}
 
-	cluster, err := NewCluster(*cfgFile)
+	clusterNode, err := NewClusterNode(*cfgFile, *machine)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println(cluster)
+	fmt.Println(clusterNode.cfg)
 
 	if *multiprocess {
-		p, err := osext.ExecutableFolder()
-		if err != nil {
-			panic(err)
-		}
-
 		if *forever {
-			cluster.RunMultiProcForever(path.Join(p, *fsbinary), path.Join(p, *masterbinary))
+			clusterNode.RunMultiProcForever()
 		} else {
-			cluster.RunMultiProc(path.Join(p, *fsbinary), path.Join(p, *masterbinary))
+			clusterNode.RunMultiProc()
 		}
 	} else {
 		if *forever {
-			cluster.RunForever()
+			clusterNode.RunForever()
 		} else {
-			cluster.Run()
+			clusterNode.Run()
 		}
 	}
 }

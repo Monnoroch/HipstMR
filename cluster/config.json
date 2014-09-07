@@ -1,6 +1,11 @@
 [
 	{
 		"address": "localhost",
+		"binaries": {
+			"fileserver": "fileserver",
+			"filesystem_slave": "fs-slave",
+			"master": "master"
+		},
 		"fileservers": [
 			{
 				"port": "8010",
@@ -11,9 +16,19 @@
 				"mnt": "data1"
 			}
 		],
+		"filesystem_slaves": [
+			{
+				"port": "8012",
+				"mnt": "data"
+			},
+			{
+				"port": "8013",
+				"mnt": "data1"
+			}
+		],
 		"masters": [
 			{
-				"port": "8013"
+				"port": "8014"
 			}
 		]
 	}
