@@ -5,11 +5,11 @@ import(
 	"path"
 	"os/exec"
 	"HipstMR/utils"
-	// "HipstMR/lib/go/hipstmr"
 )
 
 type Master struct {
 	addr string
+	cfgPath string
 	cfg utils.Config
 }
 
@@ -31,7 +31,7 @@ func (self *Master) Run() error {
 }
 
 func (self *Master) RunProcess(binaryPath string) (string, string, error) {
-	return utils.ExecCmd(exec.Command(path.Clean(binaryPath), "-address", self.addr))
+	return utils.ExecCmd(exec.Command(path.Clean(binaryPath), "-address", self.addr, "-config", self.cfgPath))
 }
 
 func (self *Master) handle(conn net.Conn) {
@@ -39,9 +39,10 @@ func (self *Master) handle(conn net.Conn) {
 }
 
 
-func NewMaster(addr string, cfg utils.Config) Master {
+func NewMaster(addr, cfgPath string, cfg utils.Config) Master {
 	return Master{
 		addr: addr,
+		cfgPath: cfgPath,
 		cfg: cfg,
 	}
 }

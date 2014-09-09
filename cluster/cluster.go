@@ -61,7 +61,6 @@ func (self *ClusterNode) RunForever() {
 		v := mas
 		utils.GoForever(&v)
 	}
-	select{}
 }
 
 func (self *ClusterNode) RunMultiProc() {
@@ -109,7 +108,6 @@ func (self *ClusterNode) RunMultiProcForever() {
 		v := mas
 		utils.GoProcessDebugForever(&v, binaryMasterPath)
 	}
-	select{}
 }
 
 func NewClusterNode(file, name string) (ClusterNode, error) {
@@ -145,11 +143,11 @@ func NewClusterNode(file, name string) (ClusterNode, error) {
 	}
 
 	for j, f := range nodeCfg.Masters {
-		res.masters[j] = master.NewMaster(":" + f.Port, res.cfg)
+		res.masters[j] = master.NewMaster(":" + f.Port, cfgFullPath, res.cfg)
 	}
 
 	for j, f := range nodeCfg.FilesystemSlaves {
-		res.fsSlaves[j] = filesystem.NewSlave(":" + f.Port, nodeCfg.Addr, f.Mnt, cfgFullPath, *nodeCfg)
+		res.fsSlaves[j] = filesystem.NewSlave(":" + f.Port, f.Mnt, nodeCfg.Addr, cfgFullPath, *nodeCfg)
 	}
 
 	return res, nil
@@ -187,5 +185,7 @@ func main() {
 			clusterNode.Run()
 		}
 	}
+
+	select{}
 }
 

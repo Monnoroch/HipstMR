@@ -6,7 +6,10 @@ import (
 	"net"
 	"path"
 	"os/exec"
+	"bufio"
 	"HipstMR/utils"
+	"encoding/json"
+	"io"
 )
 
 
@@ -49,8 +52,42 @@ func (self *Slave) RunProcess(binaryPath string) (string, string, error) {
 	return utils.ExecCmd(exec.Command(path.Clean(binaryPath), "-address", self.addr, "-mnt", self.mnt, "-name", self.name, "-config", self.cfgPath))
 }
 
+func (self *Slave) put(cmd FileSystemCommand, conn net.Conn) error {
+	// TODO
+	return nil
+}
+
+func (self *Slave) doHandle(cmd FileSystemCommand, conn net.Conn) error {
+	switch cmd.Action {
+	case "put":
+		return self.put(cmd, conn)
+	default:
+		return errors.New("Unknown command " + cmd.Action)
+	}
+	return nil
+}
+
 func (self *Slave) handle(conn net.Conn) {
 	defer conn.Close()
+	decoder := json.NewDecoder(bufio.NewReader(conn))
+
+	for {
+		var cmd FileSystemCommand
+		err := decoder.Decode(&cmd)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			failed(cmd, conn, err)
+			return
+		}
+
+		if err := self.doHandle(cmd, conn); err != nil {
+			failed(cmd, conn, err)
+			return
+		}
+	}
 }
 
 func NewSlave(addr, mnt, name, cfgPath string, cfg utils.MachineCfg) Slave {
