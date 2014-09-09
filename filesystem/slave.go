@@ -12,6 +12,43 @@ import (
 	"io"
 )
 
+type FileNumCfg struct {
+	File string `json:"file"`
+	Num uint `json:"num"`
+}
+
+type ChunkInfoCfg struct {
+	Host string `json:"host"`
+	Id string `json:"id"`
+	Name string `json:"name"`
+	Files []FileNumCfg `json:"files"`
+}
+
+type FileInfoCfg struct {
+	Name string `json:"name"`
+	Chunks []ChunkInfoCfg `json:"chunks"`
+}
+
+type FileNum struct {
+	File *FileInfo
+	Num uint
+}
+
+type ChunkInfo struct {
+	Host string
+	Id string
+	Name string
+	Size uint
+	Files []*FileNum
+}
+
+type FileInfo struct {
+	Name string
+	Size uint
+	ChunksCount uint
+	Chunks []*ChunkInfo
+}
+
 
 type Slave struct {
 	addr string
